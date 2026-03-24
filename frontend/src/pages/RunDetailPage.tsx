@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getRun, updateRun, deleteRun, completeRun } from "../api/client";
+import { RouteMap } from "../components/Map/RouteMap";
 import { formatDuration, formatPace, formatDate, formatCalories, formatAudio } from "../utils/format";
 import type { Run } from "../types/run";
 import shared from "../styles/shared.module.css";
@@ -112,7 +113,13 @@ export function RunDetailPage() {
 
   return (
     <div className={shared.page}>
-      <div className={styles.mapArea}>Route map</div>
+      {run.route && run.route.length >= 2 ? (
+        <div className={styles.mapArea}>
+          <RouteMap route={run.route} height="300px" />
+        </div>
+      ) : (
+        <div className={styles.mapPlaceholder}>No route recorded</div>
+      )}
       <div className={styles.detailCard}>
         {error && <div className={shared.errorState}>{error}</div>}
 
