@@ -1,6 +1,7 @@
 import { fetchAuthSession } from "@aws-amplify/auth";
 import type { Run, CreateRunPayload, UpdateRunPayload, CompleteRunPayload } from "../types/run";
 import type { Profile } from "../types/profile";
+import type { Stats } from "../types/stats";
 
 const BASE_URL = import.meta.env.VITE_API_URL as string;
 
@@ -87,4 +88,8 @@ export function completeRun(id: string, data: CompleteRunPayload): Promise<Run> 
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export function getStats(): Promise<Stats> {
+  return request<Stats>("/stats");
 }
