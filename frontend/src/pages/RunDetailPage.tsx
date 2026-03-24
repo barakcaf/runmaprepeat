@@ -115,7 +115,7 @@ export function RunDetailPage() {
     <div className={shared.page}>
       {run.route && run.route.length >= 2 ? (
         <div className={styles.mapArea}>
-          <RouteMap route={run.route} height="300px" />
+          <RouteMap route={run.route} height="100%" />
         </div>
       ) : (
         <div className={styles.mapPlaceholder}>No route recorded</div>

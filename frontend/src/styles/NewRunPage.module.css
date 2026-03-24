@@ -22,8 +22,16 @@
 }
 
 .mapArea {
-  height: 300px;
+  height: 50vh;
+  min-height: 300px;
   position: relative;
+}
+
+@media (max-width: 768px) {
+  .mapArea {
+    height: 40vh;
+    min-height: 250px;
+  }
 }
 
 .form {
