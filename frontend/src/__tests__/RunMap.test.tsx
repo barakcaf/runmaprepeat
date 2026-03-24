@@ -83,6 +83,8 @@ beforeAll(() => {
       getSource: vi.fn().mockReturnValue({
         setData: vi.fn(),
       }),
+      getStyle: vi.fn().mockReturnValue({ layers: [] }),
+      setLayoutProperty: vi.fn(),
     }));
 
     const Marker = vi.fn().mockImplementation(({ element }: { element?: HTMLDivElement } = {}) => {
