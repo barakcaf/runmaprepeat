@@ -11,6 +11,8 @@ beforeAll(() => {
       addSource: vi.fn(),
       addLayer: vi.fn(),
       getSource: vi.fn(),
+      getStyle: vi.fn().mockReturnValue({ layers: [] }),
+      setLayoutProperty: vi.fn(),
     }));
 
     const Marker = vi.fn().mockImplementation(() => {

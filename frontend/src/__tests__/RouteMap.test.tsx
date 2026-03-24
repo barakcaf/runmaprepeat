@@ -12,6 +12,8 @@ beforeAll(() => {
       addLayer: vi.fn(),
       getSource: vi.fn(),
       fitBounds: vi.fn(),
+      getStyle: vi.fn().mockReturnValue({ layers: [] }),
+      setLayoutProperty: vi.fn(),
     }));
 
     const LngLatBounds = vi.fn().mockImplementation(() => ({
