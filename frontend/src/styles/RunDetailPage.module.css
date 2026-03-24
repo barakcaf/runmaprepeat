@@ -1,0 +1,85 @@
+.mapArea {
+  background: #e0e0e0;
+  height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 1rem;
+}
+
+.detailCard {
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  margin-top: -16px;
+  position: relative;
+  padding: 1.25rem 1rem 2rem;
+}
+
+.runTitle {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.runDate {
+  font-size: 0.875rem;
+  color: #666;
+  margin-top: 0.25rem;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.statItem {
+  background: #f9f9f9;
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.statItemLabel {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #666;
+}
+
+.statItemValue {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-top: 0.125rem;
+}
+
+.section {
+  margin-top: 1rem;
+}
+
+.sectionLabel {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sectionValue {
+  font-size: 1rem;
+  color: #1a1a1a;
+  margin-top: 0.25rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+.editForm {
+  margin-top: 1rem;
+}

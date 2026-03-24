@@ -1,0 +1,19 @@
+.feedback {
+  padding: 0.75rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.success {
+  composes: feedback;
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.signOutSection {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #eee;
+}
