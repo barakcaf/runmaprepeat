@@ -5,9 +5,10 @@ import { listRuns, getStats } from "../api/client";
 import { RouteMap } from "../components/Map/RouteMap";
 import { StatsCards } from "../components/Dashboard/StatsCards";
 import { WeeklyDistanceChart } from "../components/Dashboard/WeeklyDistanceChart";
+import { MonthlyDistanceChart } from "../components/Dashboard/MonthlyDistanceChart";
 import { formatDuration, formatPace, formatDate, formatDateTime, formatCalories, formatAudio } from "../utils/format";
 import type { Run } from "../types/run";
-import type { WeeklyDistance } from "../types/stats";
+import type { WeeklyDistance, MonthlyDistance } from "../types/stats";
 import shared from "../styles/shared.module.css";
 import styles from "../styles/Dashboard.module.css";
 
@@ -16,6 +17,7 @@ export function Dashboard() {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<Run[]>([]);
   const [weeklyDistances, setWeeklyDistances] = useState<WeeklyDistance[]>([]);
+  const [monthlyDistances, setMonthlyDistances] = useState<MonthlyDistance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,6 +29,7 @@ export function Dashboard() {
         if (!cancelled) {
           setRuns(runsData);
           setWeeklyDistances(statsData.weeklyDistances);
+          setMonthlyDistances(statsData.monthlyDistances);
         }
       })
       .catch((err: Error) => {
@@ -73,6 +76,11 @@ export function Dashboard() {
       <StatsCards />
 
       <WeeklyDistanceChart weeklyDistances={weeklyDistances} />
+
+      <h2 className={styles.sectionTitle}>Monthly Distance</h2>
+      <div className={`${shared.card}`} style={{ padding: "0.75rem" }}>
+        <MonthlyDistanceChart monthlyDistances={monthlyDistances} />
+      </div>
 
       <h2 className={styles.sectionTitle}>Recent Runs</h2>
 
