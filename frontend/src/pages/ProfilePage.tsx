@@ -24,7 +24,12 @@ export function ProfilePage() {
         setHeightCm(profile.heightCm?.toString() ?? "");
         setBirthDate(profile.birthDate ?? "");
       })
-      .catch((err: Error) => setError(err.message))
+      .catch((err: unknown) => {
+        // 404 = no profile yet, just show empty form
+        if (err instanceof Error && err.message.includes("404")) return;
+        const message = err instanceof Error ? err.message : "Failed to load profile";
+        setError(message);
+      })
       .finally(() => setLoading(false));
   }, []);
 
