@@ -3,6 +3,7 @@ import { AuthProvider } from "./auth/AuthProvider";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { ProfileGate } from "./auth/ProfileGate";
 import { LoginPage } from "./auth/LoginPage";
+import { RegisterPage } from "./auth/RegisterPage";
 import { BottomNav } from "./components/NavBar/BottomNav";
 import { Dashboard } from "./pages/Dashboard";
 import { NewRunPage } from "./pages/NewRunPage";
@@ -13,12 +14,13 @@ import { ProfileSetupPage } from "./pages/ProfileSetupPage";
 
 function AppRoutes() {
   const location = useLocation();
-  const showNav = location.pathname !== "/login" && location.pathname !== "/setup";
+  const showNav = location.pathname !== "/login" && location.pathname !== "/register" && location.pathname !== "/setup";
 
   return (
     <>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
         <Route
           path="/setup"
           element={
