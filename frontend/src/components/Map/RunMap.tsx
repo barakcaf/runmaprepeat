@@ -20,6 +20,8 @@ export function RunMap({ onRouteChange }: RunMapProps) {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const coordsRef = useRef<Coordinate[]>([]);
+  const popupRef = useRef<maplibregl.Popup | null>(null);
+  const draggedRef = useRef(false);
   const [distance, setDistance] = useState(0);
   const [pointCount, setPointCount] = useState(0);
 
@@ -48,6 +50,7 @@ export function RunMap({ onRouteChange }: RunMapProps) {
 
   const createMarkerElement = useCallback((index: number): HTMLDivElement => {
     const el = document.createElement("div");
+    el.className = "waypoint-marker";
     el.style.width = "28px";
     el.style.height = "28px";
     el.style.borderRadius = "50%";
@@ -60,11 +63,75 @@ export function RunMap({ onRouteChange }: RunMapProps) {
     el.style.color = "#ffffff";
     el.style.fontSize = "12px";
     el.style.fontWeight = "700";
-    el.style.cursor = "grab";
+    el.style.cursor = "pointer";
     el.style.touchAction = "none";
+    el.style.transition = "transform 0.15s ease, box-shadow 0.15s ease";
     el.textContent = String(index + 1);
+
+    el.addEventListener("mouseenter", () => {
+      el.style.transform = "scale(1.2)";
+      el.style.boxShadow = "0 3px 10px rgba(0,0,0,0.4)";
+    });
+    el.addEventListener("mouseleave", () => {
+      el.style.transform = "scale(1)";
+      el.style.boxShadow = "0 2px 6px rgba(0,0,0,0.3)";
+    });
+
     return el;
   }, []);
+
+  const removeWaypoint = useCallback(
+    (index: number) => {
+      const map = mapRef.current;
+      if (!map) return;
+
+      popupRef.current?.remove();
+      popupRef.current = null;
+
+      markersRef.current[index].remove();
+      markersRef.current = markersRef.current.filter((_, i) => i !== index);
+      coordsRef.current = coordsRef.current.filter((_, i) => i !== index);
+
+      markersRef.current.forEach((m, i) => {
+        const el = m.getElement();
+        el.textContent = String(i + 1);
+      });
+
+      updateRoute();
+    },
+    [updateRoute]
+  );
+
+  const showRemovePopup = useCallback(
+    (marker: maplibregl.Marker, index: number) => {
+      const map = mapRef.current;
+      if (!map) return;
+
+      popupRef.current?.remove();
+
+      const btn = document.createElement("button");
+      btn.textContent = "Remove waypoint";
+      btn.setAttribute("data-testid", "remove-waypoint-btn");
+      btn.style.cssText =
+        "padding:6px 12px;border:none;border-radius:6px;background:#ef4444;color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;";
+
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const currentIndex = markersRef.current.indexOf(marker);
+        if (currentIndex !== -1) {
+          removeWaypoint(currentIndex);
+        }
+      });
+
+      const popup = new maplibregl.Popup({ offset: 20, closeButton: false })
+        .setDOMContent(btn)
+        .setLngLat(marker.getLngLat())
+        .addTo(map);
+
+      popupRef.current = popup;
+    },
+    [removeWaypoint]
+  );
 
   const addWaypoint = useCallback(
     (lngLat: maplibregl.LngLat) => {
@@ -75,12 +142,17 @@ export function RunMap({ onRouteChange }: RunMapProps) {
       const index = coordsRef.current.length;
       coordsRef.current = [...coordsRef.current, coord];
 
+      const el = createMarkerElement(index);
       const marker = new maplibregl.Marker({
-        element: createMarkerElement(index),
+        element: el,
         draggable: true,
       })
         .setLngLat(lngLat)
         .addTo(map);
+
+      marker.on("dragstart", () => {
+        draggedRef.current = true;
+      });
 
       marker.on("dragend", () => {
         const pos = marker.getLngLat();
@@ -93,10 +165,22 @@ export function RunMap({ onRouteChange }: RunMapProps) {
         }
       });
 
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (draggedRef.current) {
+          draggedRef.current = false;
+          return;
+        }
+        const currentIndex = markersRef.current.indexOf(marker);
+        if (currentIndex !== -1) {
+          showRemovePopup(marker, currentIndex);
+        }
+      });
+
       markersRef.current = [...markersRef.current, marker];
       updateRoute();
     },
-    [createMarkerElement, updateRoute]
+    [createMarkerElement, showRemovePopup, updateRoute]
   );
 
   const handleUndo = useCallback(() => {
