@@ -2,8 +2,7 @@ import { useRef, useEffect } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Coordinate } from "../../types/run";
-
-const TILE_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+import { TILE_STYLE } from "./mapConfig";
 const ROUTE_SOURCE_ID = "route-source";
 const ROUTE_LAYER_ID = "route-layer";
 
