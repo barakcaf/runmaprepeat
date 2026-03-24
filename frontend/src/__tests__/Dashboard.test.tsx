@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
+import { createElement, type ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { Dashboard } from "../pages/Dashboard";
 import type { Run } from "../types/run";
@@ -49,6 +50,19 @@ beforeAll(() => {
   vi.mock("../api/client", () => ({
     listRuns: (...args: unknown[]) => mockListRuns(...args),
     getStats: (...args: unknown[]) => mockGetStats(...args),
+  }));
+
+  vi.mock("recharts", () => ({
+    ResponsiveContainer: ({ children }: { children: ReactNode }) =>
+      createElement("div", null, children),
+    BarChart: ({ children }: { children: ReactNode }) =>
+      createElement("div", null, children),
+    Bar: ({ children }: { children: ReactNode }) =>
+      createElement("div", null, children),
+    XAxis: () => createElement("div"),
+    YAxis: () => createElement("div"),
+    Tooltip: () => createElement("div"),
+    Cell: () => createElement("div"),
   }));
 
   vi.mock("../auth/AuthProvider", () => ({
