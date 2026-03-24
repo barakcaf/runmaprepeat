@@ -1,0 +1,18 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 18
+      python: 3.11
+  pre_build:
+    commands:
+      - cd $CODEBUILD_SRC_DIR/frontend
+      - npm ci
+  build:
+    commands:
+      - cd $CODEBUILD_SRC_DIR/frontend
+      - npm run build
+      - cd $CODEBUILD_SRC_DIR/infra
+      - pip install -r requirements.txt
+      - npx cdk deploy --require-approval never
