@@ -158,6 +158,49 @@ def test_put_profile_email_stored(mock_put: object) -> None:
     assert profile_data["email"] == "user@example.com"
 
 
+@patch("handlers.profile.put_profile")
+def test_put_profile_email_subscriptions_stored(mock_put: object) -> None:
+    """emailSubscriptions field should be stored when sent."""
+    body = {**VALID_PROFILE, "emailSubscriptions": {"weekly": True, "monthly": False}}
+    mock_put.return_value = body
+    handler(_make_event("PUT", body), None)
+    profile_data = mock_put.call_args[0][1]
+    assert profile_data["emailSubscriptions"] == {"weekly": True, "monthly": False}
+
+
+@patch("handlers.profile.put_profile")
+def test_put_profile_email_subscriptions_defaults(mock_put: object) -> None:
+    """emailSubscriptions defaults to both false when not sent."""
+    mock_put.return_value = VALID_PROFILE
+    handler(_make_event("PUT", VALID_PROFILE), None)
+    profile_data = mock_put.call_args[0][1]
+    assert profile_data["emailSubscriptions"] == {"weekly": False, "monthly": False}
+
+
+def test_put_profile_email_subscriptions_invalid_type() -> None:
+    """emailSubscriptions must be an object."""
+    body = {**VALID_PROFILE, "emailSubscriptions": "not-an-object"}
+    response = handler(_make_event("PUT", body), None)
+    assert response["statusCode"] == 400
+    assert "emailSubscriptions must be an object" in json.loads(response["body"])["error"]
+
+
+def test_put_profile_email_subscriptions_invalid_weekly() -> None:
+    """emailSubscriptions.weekly must be a boolean."""
+    body = {**VALID_PROFILE, "emailSubscriptions": {"weekly": "yes", "monthly": False}}
+    response = handler(_make_event("PUT", body), None)
+    assert response["statusCode"] == 400
+    assert "emailSubscriptions.weekly must be a boolean" in json.loads(response["body"])["error"]
+
+
+def test_put_profile_email_subscriptions_invalid_monthly() -> None:
+    """emailSubscriptions.monthly must be a boolean."""
+    body = {**VALID_PROFILE, "emailSubscriptions": {"weekly": True, "monthly": 1}}
+    response = handler(_make_event("PUT", body), None)
+    assert response["statusCode"] == 400
+    assert "emailSubscriptions.monthly must be a boolean" in json.loads(response["body"])["error"]
+
+
 def test_put_profile_missing_all_required() -> None:
     response = handler(_make_event("PUT", {}), None)
     assert response["statusCode"] == 400
