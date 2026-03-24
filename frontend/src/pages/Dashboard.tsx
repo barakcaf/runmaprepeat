@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { listRuns } from "../api/client";
+import { RouteMap } from "../components/Map/RouteMap";
 import { formatDuration, formatPace, formatDate, formatDateTime, formatCalories, formatAudio } from "../utils/format";
 import type { Run } from "../types/run";
 import shared from "../styles/shared.module.css";
@@ -154,7 +155,11 @@ export function Dashboard() {
               if (e.key === "Enter") navigate(`/runs/${run.runId}`);
             }}
           >
-            <div className={shared.mapPlaceholder}>Route map</div>
+            {run.route && run.route.length >= 2 ? (
+              <RouteMap route={run.route} height="120px" />
+            ) : (
+              <div className={shared.mapPlaceholder}>No route</div>
+            )}
             <div className={shared.cardTitle}>
               {run.title || "Untitled Run"}
             </div>
