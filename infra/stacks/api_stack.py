@@ -8,6 +8,7 @@ from aws_cdk import (
     aws_cognito as cognito,
     aws_dynamodb as dynamodb,
     aws_lambda as _lambda,
+    aws_location as location,
 )
 from constructs import Construct
 
@@ -121,4 +122,13 @@ class ApiStack(Stack):
         stats_integration = apigw.LambdaIntegration(stats_fn)
         stats_resource.add_method("GET", stats_integration, **auth_method_options)
 
+        # Place Index for location search
+        self.place_index = location.CfnPlaceIndex(
+            self,
+            "RunMapRepeatPlaceIndex",
+            data_source="Esri",
+            index_name="runmaprepeat-places",
+        )
+
         CfnOutput(self, "ApiUrl", value=api.url)
+        CfnOutput(self, "PlaceIndexName", value=self.place_index.index_name)
