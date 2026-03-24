@@ -3,16 +3,16 @@ version: 0.2
 phases:
   install:
     runtime-versions:
-      nodejs: 18
-      python: 3.11
+      nodejs: 22
+    commands:
+      - cd $CODEBUILD_SRC_DIR/frontend && npm ci
   pre_build:
     commands:
-      - cd $CODEBUILD_SRC_DIR/frontend
-      - npm ci
+      - cd $CODEBUILD_SRC_DIR/frontend && npm test -- --run
   build:
     commands:
-      - cd $CODEBUILD_SRC_DIR/frontend
-      - npm run build
-      - cd $CODEBUILD_SRC_DIR/infra
-      - pip install -r requirements.txt
-      - npx cdk deploy --require-approval never
+      - cd $CODEBUILD_SRC_DIR/frontend && npm run build
+  post_build:
+    commands:
+      - aws s3 sync $CODEBUILD_SRC_DIR/frontend/dist s3://$S3_BUCKET --delete
+      - aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
