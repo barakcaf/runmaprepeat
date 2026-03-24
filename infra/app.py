@@ -3,6 +3,7 @@ import aws_cdk as cdk
 
 from stacks.api_stack import ApiStack
 from stacks.auth_stack import AuthStack
+from stacks.backend_pipeline_stack import BackendPipelineStack
 from stacks.data_stack import DataStack
 from stacks.frontend_stack import FrontendStack
 from stacks.pipeline_stack import PipelineStack
@@ -30,5 +31,7 @@ PipelineStack(
     distribution_id="E2E3A3QH11PGOS",
     env=env,
 )
+
+BackendPipelineStack(app, "RunMapRepeat-Backend-Pipeline", env=env)
 
 app.synth()
