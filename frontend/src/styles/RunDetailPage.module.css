@@ -1,6 +1,10 @@
 .mapArea {
-  background: #e0e0e0;
   height: 300px;
+}
+
+.mapPlaceholder {
+  background: #e0e0e0;
+  height: 200px;
   display: flex;
   align-items: center;
   justify-content: center;

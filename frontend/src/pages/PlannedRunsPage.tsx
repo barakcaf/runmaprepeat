@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { listRuns, completeRun, deleteRun } from "../api/client";
+import { RouteMap } from "../components/Map/RouteMap";
 import { formatDate } from "../utils/format";
 import type { Run } from "../types/run";
 import shared from "../styles/shared.module.css";
@@ -94,7 +95,11 @@ export function PlannedRunsPage() {
       ) : (
         runs.map((run) => (
           <div key={run.runId} className={shared.card}>
-            <div className={shared.mapPlaceholder}>Route map</div>
+            {run.route && run.route.length >= 2 ? (
+              <RouteMap route={run.route} height="120px" />
+            ) : (
+              <div className={shared.mapPlaceholder}>No route</div>
+            )}
             <div className={shared.cardTitle}>
               {run.title || "Untitled Run"}
             </div>

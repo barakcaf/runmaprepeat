@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { createRun } from "../api/client";
-import type { Audio, CreateRunPayload } from "../types/run";
+import { RunMap } from "../components/Map/RunMap";
+import { calculateRouteDistance, formatDistance } from "../utils/distance";
+import type { Audio, Coordinate, CreateRunPayload } from "../types/run";
 import shared from "../styles/shared.module.css";
 import styles from "../styles/NewRunPage.module.css";
 
@@ -29,6 +31,15 @@ export function NewRunPage() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [route, setRoute] = useState<Coordinate[]>([]);
+  const [distanceMeters, setDistanceMeters] = useState(0);
+  const [mapExpanded, setMapExpanded] = useState(true);
+
+  const handleRouteChange = useCallback((coords: Coordinate[]) => {
+    setRoute(coords);
+    setDistanceMeters(calculateRouteDistance(coords));
+  }, []);
 
   const [audioType, setAudioType] = useState<"music" | "podcast">("music");
   const [musicSubtype, setMusicSubtype] = useState<"artist" | "playlist">("artist");
@@ -86,6 +97,7 @@ export function NewRunPage() {
       status,
       runDate: toISOLocal(date, time),
       ...(title.trim() ? { title: title.trim() } : {}),
+      ...(route.length >= 2 ? { route, distanceMeters } : {}),
       ...(status === "completed" && durationSeconds ? { durationSeconds } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
       audio: buildAudio(),
@@ -104,7 +116,21 @@ export function NewRunPage() {
 
   return (
     <div className={shared.page}>
-      <div className={styles.mapArea}>Map component loading...</div>
+      <div className={styles.mapSection}>
+        <button
+          type="button"
+          className={styles.mapToggle}
+          onClick={() => setMapExpanded((prev) => !prev)}
+        >
+          {mapExpanded ? "Hide Map" : "Show Map"}
+          {distanceMeters > 0 && ` — ${formatDistance(distanceMeters)}`}
+        </button>
+        {mapExpanded && (
+          <div className={styles.mapArea}>
+            <RunMap onRouteChange={handleRouteChange} />
+          </div>
+        )}
+      </div>
       <form className={styles.form} onSubmit={handleSubmit}>
         <h2 className={styles.formTitle}>New Run</h2>
 
