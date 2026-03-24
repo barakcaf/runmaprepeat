@@ -17,17 +17,32 @@ export function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [mode, setMode] = useState<"view" | "edit">("view");
+
+  // Saved values to restore on cancel
+  const [savedValues, setSavedValues] = useState({
+    email: "",
+    displayName: "",
+    weightKg: "",
+    heightCm: "",
+  });
 
   useEffect(() => {
     getProfile()
       .then((profile) => {
-        setEmail(profile.email ?? "");
-        setDisplayName(profile.displayName ?? "");
-        setWeightKg(profile.weightKg?.toString() ?? "");
-        setHeightCm(profile.heightCm?.toString() ?? "");
+        const values = {
+          email: profile.email ?? "",
+          displayName: profile.displayName ?? "",
+          weightKg: profile.weightKg?.toString() ?? "",
+          heightCm: profile.heightCm?.toString() ?? "",
+        };
+        setEmail(values.email);
+        setDisplayName(values.displayName);
+        setWeightKg(values.weightKg);
+        setHeightCm(values.heightCm);
+        setSavedValues(values);
       })
       .catch((err: unknown) => {
-        // 404 = no profile yet, just show empty form
         if (err instanceof Error && err.message.includes("404")) return;
         const message = err instanceof Error ? err.message : "Failed to load profile";
         setError(message);
@@ -68,13 +83,37 @@ export function ProfilePage() {
 
     try {
       await updateProfile(data);
+      const newSaved = {
+        email: data.email,
+        displayName: data.displayName,
+        weightKg: data.weightKg.toString(),
+        heightCm: data.heightCm.toString(),
+      };
+      setSavedValues(newSaved);
       setSuccess(true);
+      setMode("view");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to save profile";
       setError(message);
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleEdit() {
+    setError(null);
+    setSuccess(false);
+    setMode("edit");
+  }
+
+  function handleCancel() {
+    setEmail(savedValues.email);
+    setDisplayName(savedValues.displayName);
+    setWeightKg(savedValues.weightKg);
+    setHeightCm(savedValues.heightCm);
+    setError(null);
+    setSuccess(false);
+    setMode("view");
   }
 
   if (loading) {
@@ -91,79 +130,135 @@ export function ProfilePage() {
         <h1 className={shared.pageTitle}>Profile</h1>
       </div>
 
-      <form className={shared.card} onSubmit={handleSave}>
-        {error && <div className={shared.errorState}>{error}</div>}
-        {success && <div className={styles.success}>Profile saved!</div>}
+      {mode === "view" ? (
+        <div className={shared.card}>
+          {error && <div className={shared.errorState}>{error}</div>}
+          {success && <div className={styles.success}>Profile saved!</div>}
 
-        <div className={shared.formGroup}>
-          <label className={shared.formLabel} htmlFor="email">Email *</label>
-          <input
-            id="email"
-            className={shared.formInput}
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </div>
+          <div className={styles.fieldGroup}>
+            <span className={styles.fieldLabel}>Email</span>
+            <span className={styles.fieldValue} data-testid="view-email">{email || "—"}</span>
+          </div>
 
-        <div className={shared.formGroup}>
-          <label className={shared.formLabel} htmlFor="displayName">Display Name *</label>
-          <input
-            id="displayName"
-            className={shared.formInput}
-            type="text"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            required
-          />
-        </div>
+          <div className={styles.fieldGroup}>
+            <span className={styles.fieldLabel}>Display Name</span>
+            <span className={styles.fieldValue} data-testid="view-displayName">{displayName || "—"}</span>
+          </div>
 
-        <div className={shared.formGroup}>
-          <label className={shared.formLabel} htmlFor="heightCm">Height (cm) *</label>
-          <input
-            id="heightCm"
-            className={shared.formInput}
-            type="number"
-            value={heightCm}
-            onChange={(e) => setHeightCm(e.target.value)}
-            required
-          />
-        </div>
+          <div className={styles.fieldGroup}>
+            <span className={styles.fieldLabel}>Height (cm)</span>
+            <span className={styles.fieldValue} data-testid="view-heightCm">{heightCm || "—"}</span>
+          </div>
 
-        <div className={shared.formGroup}>
-          <label className={shared.formLabel} htmlFor="weightKg">Weight (kg) *</label>
-          <input
-            id="weightKg"
-            className={shared.formInput}
-            type="number"
-            step="0.1"
-            value={weightKg}
-            onChange={(e) => setWeightKg(e.target.value)}
-            required
-          />
-        </div>
+          <div className={styles.fieldGroup}>
+            <span className={styles.fieldLabel}>Weight (kg)</span>
+            <span className={styles.fieldValue} data-testid="view-weightKg">{weightKg || "—"}</span>
+          </div>
 
-        <button
-          type="submit"
-          className={shared.buttonPrimary}
-          disabled={saving}
-          style={{ width: "100%" }}
-        >
-          {saving ? "Saving..." : "Save Profile"}
-        </button>
-
-        <div className={styles.signOutSection}>
           <button
             type="button"
-            className={shared.buttonSecondary}
-            onClick={signOut}
+            className={shared.buttonPrimary}
+            onClick={handleEdit}
             style={{ width: "100%" }}
           >
-            Sign Out
+            Edit
           </button>
+
+          <div className={styles.signOutSection}>
+            <button
+              type="button"
+              className={shared.buttonSecondary}
+              onClick={signOut}
+              style={{ width: "100%" }}
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
-      </form>
+      ) : (
+        <form className={shared.card} onSubmit={handleSave}>
+          {error && <div className={shared.errorState}>{error}</div>}
+
+          <div className={shared.formGroup}>
+            <label className={shared.formLabel} htmlFor="email">Email *</label>
+            <input
+              id="email"
+              className={shared.formInput}
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className={shared.formGroup}>
+            <label className={shared.formLabel} htmlFor="displayName">Display Name *</label>
+            <input
+              id="displayName"
+              className={shared.formInput}
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className={shared.formGroup}>
+            <label className={shared.formLabel} htmlFor="heightCm">Height (cm) *</label>
+            <input
+              id="heightCm"
+              className={shared.formInput}
+              type="number"
+              value={heightCm}
+              onChange={(e) => setHeightCm(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className={shared.formGroup}>
+            <label className={shared.formLabel} htmlFor="weightKg">Weight (kg) *</label>
+            <input
+              id="weightKg"
+              className={shared.formInput}
+              type="number"
+              step="0.1"
+              value={weightKg}
+              onChange={(e) => setWeightKg(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className={styles.buttonRow}>
+            <button
+              type="button"
+              className={shared.buttonSecondary}
+              onClick={handleCancel}
+              style={{ flex: 1 }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className={shared.buttonPrimary}
+              disabled={saving}
+              style={{ flex: 1 }}
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+          </div>
+
+          <div className={styles.signOutSection}>
+            <button
+              type="button"
+              className={shared.buttonSecondary}
+              onClick={signOut}
+              style={{ width: "100%" }}
+            >
+              Sign Out
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

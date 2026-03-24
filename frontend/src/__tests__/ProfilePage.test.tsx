@@ -3,10 +3,12 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ProfilePage } from "../pages/ProfilePage";
 
+const mockSignOut = vi.fn();
+
 vi.mock("../auth/AuthProvider", () => ({
   useAuth: () => ({
     user: { email: "test@example.com", userId: "user-123" },
-    signOut: vi.fn(),
+    signOut: mockSignOut,
   }),
 }));
 
@@ -30,6 +32,12 @@ function renderPage() {
   );
 }
 
+async function waitForLoaded() {
+  await waitFor(() => {
+    expect(screen.queryByText("Loading profile...")).not.toBeInTheDocument();
+  });
+}
+
 describe("ProfilePage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -41,72 +49,176 @@ describe("ProfilePage", () => {
     expect(screen.getByText("Loading profile...")).toBeInTheDocument();
   });
 
-  it("renders form fields after loading", async () => {
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByLabelText("Email *")).toBeInTheDocument();
+  describe("view mode (default)", () => {
+    it("displays profile fields as text after loading", async () => {
+      renderPage();
+      await waitForLoaded();
+
+      expect(screen.getByTestId("view-email")).toHaveTextContent("test@example.com");
+      expect(screen.getByTestId("view-displayName")).toHaveTextContent("Test User");
+      expect(screen.getByTestId("view-heightCm")).toHaveTextContent("180");
+      expect(screen.getByTestId("view-weightKg")).toHaveTextContent("75");
     });
-    expect(screen.getByLabelText("Display Name *")).toBeInTheDocument();
-    expect(screen.getByLabelText("Weight (kg) *")).toBeInTheDocument();
-    expect(screen.getByLabelText("Height (cm) *")).toBeInTheDocument();
+
+    it("does not render form inputs in view mode", async () => {
+      renderPage();
+      await waitForLoaded();
+
+      expect(screen.queryByLabelText("Email *")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Display Name *")).not.toBeInTheDocument();
+    });
+
+    it("renders Edit button", async () => {
+      renderPage();
+      await waitForLoaded();
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+
+    it("does not render Save or Cancel buttons", async () => {
+      renderPage();
+      await waitForLoaded();
+      expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+    });
+
+    it("renders Sign Out button", async () => {
+      renderPage();
+      await waitForLoaded();
+      expect(screen.getByRole("button", { name: "Sign Out" })).toBeInTheDocument();
+    });
   });
 
-  it("does not render birth date field", async () => {
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByLabelText("Email *")).toBeInTheDocument();
-    });
-    expect(screen.queryByLabelText("Birth Date")).not.toBeInTheDocument();
-  });
+  describe("edit mode", () => {
+    async function enterEditMode() {
+      renderPage();
+      await waitForLoaded();
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    }
 
-  it("populates form with loaded profile data", async () => {
-    renderPage();
-    await waitFor(() => {
+    it("switches to edit mode when Edit is clicked", async () => {
+      await enterEditMode();
+
+      expect(screen.getByLabelText("Email *")).toBeInTheDocument();
+      expect(screen.getByLabelText("Display Name *")).toBeInTheDocument();
+      expect(screen.getByLabelText("Height (cm) *")).toBeInTheDocument();
+      expect(screen.getByLabelText("Weight (kg) *")).toBeInTheDocument();
+    });
+
+    it("populates inputs with current values", async () => {
+      await enterEditMode();
+
       expect(screen.getByLabelText("Email *")).toHaveValue("test@example.com");
+      expect(screen.getByLabelText("Display Name *")).toHaveValue("Test User");
+      expect(screen.getByLabelText("Height (cm) *")).toHaveValue(180);
+      expect(screen.getByLabelText("Weight (kg) *")).toHaveValue(75);
     });
-    expect(screen.getByLabelText("Display Name *")).toHaveValue("Test User");
-    expect(screen.getByLabelText("Weight (kg) *")).toHaveValue(75);
-    expect(screen.getByLabelText("Height (cm) *")).toHaveValue(180);
-  });
 
-  it("renders save button", async () => {
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByText("Save Profile")).toBeInTheDocument();
+    it("shows Save and Cancel buttons", async () => {
+      await enterEditMode();
+
+      expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     });
-  });
 
-  it("renders sign out button", async () => {
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByText("Sign Out")).toBeInTheDocument();
+    it("does not show Edit button in edit mode", async () => {
+      await enterEditMode();
+      expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     });
-  });
 
-  it("marks all fields as required", async () => {
-    renderPage();
-    await waitFor(() => {
+    it("shows Sign Out button in edit mode", async () => {
+      await enterEditMode();
+      expect(screen.getByRole("button", { name: "Sign Out" })).toBeInTheDocument();
+    });
+
+    it("marks all fields as required", async () => {
+      await enterEditMode();
+
       expect(screen.getByLabelText("Email *")).toBeRequired();
+      expect(screen.getByLabelText("Display Name *")).toBeRequired();
+      expect(screen.getByLabelText("Height (cm) *")).toBeRequired();
+      expect(screen.getByLabelText("Weight (kg) *")).toBeRequired();
     });
-    expect(screen.getByLabelText("Display Name *")).toBeRequired();
-    expect(screen.getByLabelText("Height (cm) *")).toBeRequired();
-    expect(screen.getByLabelText("Weight (kg) *")).toBeRequired();
   });
 
-  it("shows validation error for invalid email on save", async () => {
-    renderPage();
-    await waitFor(() => {
+  describe("cancel", () => {
+    it("returns to view mode and discards changes", async () => {
+      renderPage();
+      await waitForLoaded();
+
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+      fireEvent.change(screen.getByLabelText("Display Name *"), {
+        target: { value: "Changed Name" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      // Back in view mode with original values
+      expect(screen.getByTestId("view-displayName")).toHaveTextContent("Test User");
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+  });
+
+  describe("save", () => {
+    it("saves profile and returns to view mode with updated values", async () => {
+      renderPage();
+      await waitForLoaded();
+
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+      fireEvent.change(screen.getByLabelText("Display Name *"), {
+        target: { value: "New Name" },
+      });
+
+      const form = screen.getByRole("button", { name: "Save" }).closest("form") as HTMLFormElement;
+      fireEvent.submit(form);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("view-displayName")).toHaveTextContent("New Name");
+      });
+
+      expect(mockUpdateProfile).toHaveBeenCalledWith({
+        email: "test@example.com",
+        displayName: "New Name",
+        heightCm: 180,
+        weightKg: 75,
+      });
+      expect(screen.getByText("Profile saved!")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+
+    it("shows validation error for invalid email on save", async () => {
+      renderPage();
+      await waitForLoaded();
+
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+      fireEvent.change(screen.getByLabelText("Email *"), {
+        target: { value: "not-an-email" },
+      });
+
+      const form = screen.getByRole("button", { name: "Save" }).closest("form") as HTMLFormElement;
+      fireEvent.submit(form);
+
+      await waitFor(() => {
+        expect(screen.getByText("Please enter a valid email address")).toBeInTheDocument();
+      });
+      // Should stay in edit mode on error
       expect(screen.getByLabelText("Email *")).toBeInTheDocument();
     });
 
-    const emailInput = screen.getByLabelText("Email *");
-    fireEvent.change(emailInput, { target: { value: "not-an-email" } });
+    it("stays in edit mode on save failure", async () => {
+      mockUpdateProfile.mockRejectedValueOnce(new Error("Network error"));
 
-    const form = screen.getByText("Save Profile").closest("form") as HTMLFormElement;
-    fireEvent.submit(form);
+      renderPage();
+      await waitForLoaded();
 
-    await waitFor(() => {
-      expect(screen.getByText("Please enter a valid email address")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+      const form = screen.getByRole("button", { name: "Save" }).closest("form") as HTMLFormElement;
+      fireEvent.submit(form);
+
+      await waitFor(() => {
+        expect(screen.getByText("Network error")).toBeInTheDocument();
+      });
+      // Still in edit mode
+      expect(screen.getByLabelText("Email *")).toBeInTheDocument();
     });
   });
 });

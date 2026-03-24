@@ -17,3 +17,29 @@
   padding-top: 1.5rem;
   border-top: 1px solid #eee;
 }
+
+.fieldGroup {
+  margin-bottom: 1rem;
+}
+
+.fieldLabel {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.fieldValue {
+  display: block;
+  font-size: 1rem;
+  color: #1a1a1a;
+  padding: 0.375rem 0;
+}
+
+.buttonRow {
+  display: flex;
+  gap: 0.75rem;
+}
