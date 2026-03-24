@@ -1,44 +1,55 @@
-# CLAUDE.md — Claude Code Instructions for RunMapRepeat
+# CLAUDE.md — RunMapRepeat
 
-You are a coding agent working on RunMapRepeat, a personal exercise run tracker.
+Personal exercise run tracker. Draw routes on a map → distance, pace, calories.
 
-## Read First
-- `AGENTS.md` — project conventions and rules (mandatory)
-- `frontend/` — React + Vite + TypeScript SPA
-- `backend/` — Python Lambda handlers
-- `infra/` — CDK Python infrastructure
+## Architecture
+```
+CloudFront → S3 (React SPA)
+API Gateway (Cognito authorizer) → Lambda (Python) → DynamoDB
+AWS Location Service (maps + route calculator)
+```
 
-## Your Role
-You implement features, fix bugs, write tests, and refactor code. You do NOT make architecture decisions — those come from the orchestrator (Loki).
+## Build & Test (run these to verify your work)
+```bash
+# Frontend
+cd frontend && npm install && npm run build && npm run test
 
-## Rules
-1. **Follow AGENTS.md strictly** — it defines all conventions
-2. **Write tests** for every new feature or bug fix
-3. **Run tests before finishing** — `cd frontend && npm test` / `cd backend && pytest`
-4. **Small, focused commits** — one logical change per commit
-5. **Conventional commits** — `feat:`, `fix:`, `test:`, `chore:`, `docs:`
-6. **Never modify infra/ without explicit instructions** — infrastructure changes need review
-7. **Never hardcode secrets, API keys, or account IDs**
-8. **Ask rather than guess** if requirements are ambiguous
+# Backend
+cd backend && pip install -r requirements.txt -r requirements-dev.txt && pytest -v
 
-## Patterns
+# Infrastructure
+cd infra && pip install -r requirements.txt && cdk synth --quiet
+```
 
-### Adding a Frontend Feature
-1. Create component in `frontend/src/components/`
-2. Add types in `frontend/src/types/`
-3. API integration in `frontend/src/api/`
-4. Write tests in `frontend/src/__tests__/` or colocated `.test.tsx`
-5. Update routes if needed
+## Key Rules
+- **Run tests before finishing** — always verify, never trust blindly
+- **Small, focused commits** — conventional commits: `feat:`, `fix:`, `test:`, `chore:`, `docs:`
+- **Never modify `infra/` without explicit instructions** — infrastructure changes need review
+- **Never hardcode** secrets, API keys, account IDs, or ARNs
+- **No `any` in TypeScript**, no `print()` in Python — use proper types and logging
+- **Ask rather than guess** if requirements are ambiguous
 
-### Adding a Backend Endpoint
-1. Handler in `backend/handlers/`
-2. Data access in `backend/data/`
-3. Shared utilities in `backend/utils/`
-4. Tests in `backend/tests/`
-5. Corresponding CDK changes in `infra/` (if new Lambda/route needed)
+## Project Layout
+```
+frontend/     React + Vite + TypeScript SPA
+  src/components/   UI components (PascalCase.tsx)
+  src/api/          API client module
+  src/types/        TypeScript types
+  src/utils/        Utilities (camelCase.ts)
 
-### Adding Infrastructure
-1. Stack definitions in `infra/stacks/`
-2. Use CDK assertions for testing
-3. Never use hardcoded account IDs or ARNs
-4. Always specify ARM64 architecture for Lambda
+backend/      Python Lambda handlers
+  handlers/         Lambda entry points
+  data/             DynamoDB data access layer
+  utils/            Shared utilities
+  tests/            pytest tests
+
+infra/        AWS CDK (Python)
+  stacks/           One stack per logical grouping
+```
+
+## Gotchas
+- MapLibre `useEffect` for map init must run once (empty deps array)
+- DynamoDB returns `Decimal` — convert to `float` before JSON serialization
+- `$CODEBUILD_SRC_DIR` required in buildspec.yml — `cd` doesn't persist between phases
+- Cognito `sub` from JWT is the userId for all user-scoped DynamoDB operations
+- Lambda handlers must return `{ statusCode, headers, body }` — body is always a JSON string

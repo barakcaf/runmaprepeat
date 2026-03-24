@@ -67,10 +67,15 @@ AWS Location Service (maps + route calculator)
 - Follow SLATS security rules (Global + Internal) for all AWS resources
 
 ## Testing
-- Frontend: Vitest + React Testing Library
+- Frontend: Vitest + React Testing Library + Playwright (E2E)
 - Backend: pytest
 - Infrastructure: CDK assertions (`aws_cdk.assertions`)
 - Tests must pass before merge — enforced by CI
+
+### Coverage Requirements (enforced during code review)
+- **Frontend:** Every new page/component MUST have Playwright E2E tests covering core user flows + Vitest unit tests for utilities and component rendering
+- **Backend:** Every Lambda handler MUST have pytest coverage for all HTTP methods, success paths, error paths, validation errors, and edge cases. Aim for >90% handler coverage.
+- **PRs without adequate test coverage will be rejected during review.**
 
 ## What NOT to Do
 - Don't add unnecessary dependencies (check if stdlib or existing deps cover it)
