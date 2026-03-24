@@ -238,9 +238,8 @@ export function RunMap({ onRouteChange }: RunMapProps) {
     map.on("moveend", updateMapBounds);
 
     map.on("load", () => {
-import { DEFAULT_CENTER, DEFAULT_ZOOM, TILE_STYLE } from "./mapConfig";
-import { setEnglishLabels } from "../../utils/mapLabels";
-import { LocationSearch } from "./LocationSearch";
+      setEnglishLabels(map);
+
       map.addSource(ROUTE_SOURCE_ID, {
         type: "geojson",
         data: {
