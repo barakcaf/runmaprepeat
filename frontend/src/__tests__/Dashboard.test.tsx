@@ -31,6 +31,21 @@ beforeAll(() => {
     };
   });
 
+  vi.mock("recharts", async () => {
+    const React = await import("react");
+    return {
+      ResponsiveContainer: ({ children }: { children: React.ReactNode }) =>
+        React.createElement("div", { "data-testid": "responsive-container" }, children),
+      BarChart: ({ children }: { children: React.ReactNode }) =>
+        React.createElement("div", { "data-testid": "bar-chart" }, children),
+      Bar: () => React.createElement("div"),
+      XAxis: () => React.createElement("div"),
+      YAxis: () => React.createElement("div"),
+      Tooltip: () => React.createElement("div"),
+      Cell: () => React.createElement("div"),
+    };
+  });
+
   vi.mock("../api/client", () => ({
     listRuns: (...args: unknown[]) => mockListRuns(...args),
     getStats: (...args: unknown[]) => mockGetStats(...args),
@@ -80,20 +95,22 @@ function renderDashboard() {
   );
 }
 
+const emptyStats = {
+  currentWeek: { totalDistanceMeters: 0, totalDurationSeconds: 0, runCount: 0, avgPaceSecondsPerKm: 0 },
+  currentMonth: { totalDistanceMeters: 0, totalDurationSeconds: 0, runCount: 0, avgPaceSecondsPerKm: 0 },
+  previousWeek: { totalDistanceMeters: 0, totalDurationSeconds: 0, runCount: 0, avgPaceSecondsPerKm: 0 },
+  previousMonth: { totalDistanceMeters: 0, totalDurationSeconds: 0, runCount: 0, avgPaceSecondsPerKm: 0 },
+  weeklyDistances: [],
+  monthlyDistances: [],
+  personalRecords: { longestRunMeters: 0, fastestPaceSecondsPerKm: 0, mostDistanceInWeekMeters: 0, mostRunsInWeek: 0 },
+  allTime: { totalDistanceMeters: 0, totalRuns: 0, totalDurationSeconds: 0 },
+};
+
 describe("Dashboard map integration", () => {
   beforeEach(() => {
     mockListRuns.mockReset();
     mockGetStats.mockReset();
-    mockGetStats.mockResolvedValue({
-      currentWeek: { totalDistanceMeters: 0, totalDurationSeconds: 0, runCount: 0, avgPaceSecondsPerKm: 0 },
-      previousWeek: { totalDistanceMeters: 0, totalDurationSeconds: 0, runCount: 0, avgPaceSecondsPerKm: 0 },
-      currentMonth: { totalDistanceMeters: 0, totalDurationSeconds: 0, runCount: 0, avgPaceSecondsPerKm: 0 },
-      previousMonth: { totalDistanceMeters: 0, totalDurationSeconds: 0, runCount: 0, avgPaceSecondsPerKm: 0 },
-      weeklyDistances: [],
-      monthlyDistances: [],
-      personalRecords: { longestRunMeters: 0, fastestPaceSecondsPerKm: 0, mostDistanceInWeekMeters: 0, mostRunsInWeek: 0 },
-      allTime: { totalDistanceMeters: 0, totalRuns: 0, totalDurationSeconds: 0 },
-    });
+    mockGetStats.mockResolvedValue(emptyStats);
   });
 
   it("renders RouteMap for runs with route data", async () => {
