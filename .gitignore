@@ -6,3 +6,5 @@ cdk.out/
 .venv/
 *.pyc
 .DS_Store
+test-results/
+playwright-report/
