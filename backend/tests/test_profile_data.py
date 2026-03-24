@@ -153,6 +153,38 @@ def test_put_profile_strips_keys(mock_get_table: MagicMock) -> None:
     assert "sk" not in result
 
 
+@patch("data.profile.get_table")
+def test_get_profile_with_email_subscriptions(mock_get_table: MagicMock) -> None:
+    """get_profile returns emailSubscriptions nested dict correctly."""
+    mock_table = MagicMock()
+    mock_table.get_item.return_value = {
+        "Item": {
+            "userId": "user-1",
+            "sk": "PROFILE",
+            "email": "u@example.com",
+            "emailSubscriptions": {"weekly": True, "monthly": False},
+        }
+    }
+    mock_get_table.return_value = mock_table
+
+    profile = get_profile("user-1")
+    assert profile is not None
+    assert profile["emailSubscriptions"] == {"weekly": True, "monthly": False}
+    json.dumps(profile)
+
+
+@patch("data.profile.get_table")
+def test_put_profile_with_email_subscriptions(mock_get_table: MagicMock) -> None:
+    """put_profile stores and returns emailSubscriptions correctly."""
+    mock_table = MagicMock()
+    mock_get_table.return_value = mock_table
+
+    data = {"email": "u@example.com", "emailSubscriptions": {"weekly": True, "monthly": False}}
+    result = put_profile("user-1", data)
+    assert result["emailSubscriptions"] == {"weekly": True, "monthly": False}
+    json.dumps(result)
+
+
 # --- End-to-end handler test with real Decimal path ---
 
 

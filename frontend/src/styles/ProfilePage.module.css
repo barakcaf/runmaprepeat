@@ -12,6 +12,15 @@
   color: #2e7d32;
 }
 
+.toggleLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
 .signOutSection {
   margin-top: 2rem;
   padding-top: 1.5rem;

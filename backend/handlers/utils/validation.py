@@ -47,6 +47,15 @@ def validate_profile(body: dict[str, Any]) -> list[str]:
         if not isinstance(body["weightKg"], (int, float)) or body["weightKg"] <= 0:
             errors.append("weightKg must be a positive number")
 
+    if "emailSubscriptions" in body:
+        subs = body["emailSubscriptions"]
+        if not isinstance(subs, dict):
+            errors.append("emailSubscriptions must be an object")
+        else:
+            for key in ("weekly", "monthly"):
+                if key in subs and not isinstance(subs[key], bool):
+                    errors.append(f"emailSubscriptions.{key} must be a boolean")
+
     return errors
 
 

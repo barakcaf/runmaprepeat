@@ -64,6 +64,12 @@ def _put_profile(user_id: str, event: dict[str, Any]) -> dict[str, Any]:
         if field in body:
             profile_data[field] = body[field]
 
+    subs = body.get("emailSubscriptions", {})
+    profile_data["emailSubscriptions"] = {
+        "weekly": bool(subs.get("weekly", False)),
+        "monthly": bool(subs.get("monthly", False)),
+    }
+
     profile_data["updatedAt"] = datetime.now(timezone.utc).isoformat()
 
     result = put_profile(user_id, profile_data)
