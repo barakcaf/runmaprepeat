@@ -10,7 +10,7 @@ export interface Audio {
 
 export interface Run {
   runId: string;
-  status: "planned" | "completed" | "skipped";
+  status: "planned" | "completed";
   runDate: string;
   createdAt: string;
   updatedAt: string;
