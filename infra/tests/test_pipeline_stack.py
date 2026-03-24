@@ -129,3 +129,32 @@ def test_codebuild_has_cloudfront_permissions() -> None:
             },
         },
     )
+
+
+def test_codebuild_has_telegram_env_vars() -> None:
+    template = _create_stack()
+    template.has_resource_properties(
+        "AWS::CodeBuild::Project",
+        {
+            "Environment": {
+                "EnvironmentVariables": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Name": "TELEGRAM_BOT_TOKEN",
+                                "Type": "PARAMETER_STORE",
+                                "Value": "/runmaprepeat/telegram-bot-token",
+                            }
+                        ),
+                        assertions.Match.object_like(
+                            {
+                                "Name": "TELEGRAM_CHAT_ID",
+                                "Type": "PARAMETER_STORE",
+                                "Value": "/runmaprepeat/telegram-chat-id",
+                            }
+                        ),
+                    ]
+                ),
+            },
+        },
+    )
