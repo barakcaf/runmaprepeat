@@ -16,3 +16,10 @@ phases:
     commands:
       - aws s3 sync $CODEBUILD_SRC_DIR/frontend/dist s3://$S3_BUCKET --delete
       - aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
+      - |
+        COMMIT_MSG=$(cd $CODEBUILD_SRC_DIR && git log -1 --pretty=format:'%s')
+        COMMIT_SHA=$(cd $CODEBUILD_SRC_DIR && git log -1 --pretty=format:'%h')
+        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+          -d chat_id="${TELEGRAM_CHAT_ID}" \
+          -d parse_mode=HTML \
+          -d text="✅ <b>RunMapRepeat frontend deployed</b>%0A<code>${COMMIT_SHA}</code> ${COMMIT_MSG}"
