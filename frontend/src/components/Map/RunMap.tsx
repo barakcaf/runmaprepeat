@@ -4,6 +4,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type { Coordinate } from "../../types/run";
 import { calculateRouteDistance, formatDistance } from "../../utils/distance";
 import { DEFAULT_CENTER, DEFAULT_ZOOM, TILE_STYLE } from "./mapConfig";
+import { setEnglishLabels } from "../../utils/mapLabels";
 import styles from "./RunMap.module.css";
 
 const ROUTE_SOURCE_ID = "route-source";
@@ -213,6 +214,8 @@ export function RunMap({ onRouteChange }: RunMapProps) {
     mapRef.current = map;
 
     map.on("load", () => {
+      setEnglishLabels(map);
+
       map.addSource(ROUTE_SOURCE_ID, {
         type: "geojson",
         data: {
