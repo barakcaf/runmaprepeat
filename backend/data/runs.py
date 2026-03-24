@@ -26,6 +26,17 @@ def _convert_decimals(obj: Any) -> Any:
     return obj
 
 
+def _convert_floats_to_decimal(obj: Any) -> Any:
+    """Convert Python floats to Decimal for DynamoDB put_item compatibility."""
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    if isinstance(obj, dict):
+        return {k: _convert_floats_to_decimal(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_convert_floats_to_decimal(i) for i in obj]
+    return obj
+
+
 def _strip_keys(item: dict[str, Any]) -> dict[str, Any]:
     """Remove DynamoDB key attributes and extract runId from sk."""
     item = _convert_decimals(item)
@@ -43,6 +54,7 @@ def create_run(user_id: str, run_id: str, run_data: dict[str, Any]) -> dict[str,
         "sk": f"{SK_PREFIX}{run_id}",
         **run_data,
     }
+    item = _convert_floats_to_decimal(item)
     table.put_item(Item=item)
     return _strip_keys(dict(item))
 
@@ -77,6 +89,7 @@ def update_run(user_id: str, run_id: str, update_data: dict[str, Any]) -> dict[s
         return None
 
     existing.update(update_data)
+    existing = _convert_floats_to_decimal(existing)
     table.put_item(Item=existing)
     return _strip_keys(dict(existing))
 
