@@ -5,6 +5,7 @@ import type { Coordinate } from "../../types/run";
 import { calculateRouteDistance, formatDistance } from "../../utils/distance";
 import { DEFAULT_CENTER, DEFAULT_ZOOM, TILE_STYLE } from "./mapConfig";
 import { setEnglishLabels } from "../../utils/mapLabels";
+import { LocationSearch } from "./LocationSearch";
 import styles from "./RunMap.module.css";
 
 const ROUTE_SOURCE_ID = "route-source";
@@ -23,6 +24,27 @@ export function RunMap({ onRouteChange }: RunMapProps) {
   const draggedRef = useRef(false);
   const [distance, setDistance] = useState(0);
   const [pointCount, setPointCount] = useState(0);
+  const [mapBounds, setMapBounds] = useState<{
+    west: number; south: number; east: number; north: number;
+  }>();
+
+  const handleLocationSelect = useCallback((lng: number, lat: number) => {
+    const map = mapRef.current;
+    if (!map) return;
+    map.flyTo({ center: [lng, lat], zoom: 15 });
+  }, []);
+
+  const updateMapBounds = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const bounds = map.getBounds();
+    setMapBounds({
+      west: bounds.getWest(),
+      south: bounds.getSouth(),
+      east: bounds.getEast(),
+      north: bounds.getNorth(),
+    });
+  }, []);
 
   const updateRoute = useCallback(() => {
     const map = mapRef.current;
@@ -213,9 +235,12 @@ export function RunMap({ onRouteChange }: RunMapProps) {
 
     mapRef.current = map;
 
-    map.on("load", () => {
-      setEnglishLabels(map);
+    map.on("moveend", updateMapBounds);
 
+    map.on("load", () => {
+import { DEFAULT_CENTER, DEFAULT_ZOOM, TILE_STYLE } from "./mapConfig";
+import { setEnglishLabels } from "../../utils/mapLabels";
+import { LocationSearch } from "./LocationSearch";
       map.addSource(ROUTE_SOURCE_ID, {
         type: "geojson",
         data: {
@@ -252,6 +277,7 @@ export function RunMap({ onRouteChange }: RunMapProps) {
   return (
     <div className={styles.container}>
       <div ref={mapContainerRef} className={styles.map} data-testid="run-map" />
+      <LocationSearch onSelect={handleLocationSelect} mapBounds={mapBounds} />
       <div className={styles.overlay}>
         <div>
           <div className={styles.distanceLabel}>Distance</div>

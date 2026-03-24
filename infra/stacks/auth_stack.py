@@ -2,6 +2,7 @@ from aws_cdk import (
     CfnOutput,
     Stack,
     aws_cognito as cognito,
+    aws_iam as iam,
     aws_ssm as ssm,
 )
 from constructs import Construct
@@ -56,9 +57,70 @@ class AuthStack(Stack):
             string_value=self.user_pool_client.user_pool_client_id,
         )
 
+        # Identity Pool for frontend AWS credentials (Location Service access)
+        self.identity_pool = cognito.CfnIdentityPool(
+            self,
+            "RunMapRepeatIdentityPool",
+            identity_pool_name="runmaprepeat_identity",
+            allow_unauthenticated_identities=False,
+            cognito_identity_providers=[
+                cognito.CfnIdentityPool.CognitoIdentityProviderProperty(
+                    client_id=self.user_pool_client.user_pool_client_id,
+                    provider_name=self.user_pool.user_pool_provider_name,
+                ),
+            ],
+        )
+
+        authenticated_role = iam.Role(
+            self,
+            "CognitoAuthenticatedRole",
+            assumed_by=iam.FederatedPrincipal(
+                "cognito-identity.amazonaws.com",
+                conditions={
+                    "StringEquals": {
+                        "cognito-identity.amazonaws.com:aud": self.identity_pool.ref,
+                    },
+                    "ForAnyValue:StringLike": {
+                        "cognito-identity.amazonaws.com:amr": "authenticated",
+                    },
+                },
+                assume_role_action="sts:AssumeRoleWithWebIdentity",
+            ),
+        )
+
+        authenticated_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "geo:SearchPlaceIndexForSuggestions",
+                    "geo:SearchPlaceIndexForText",
+                ],
+                resources=["*"],
+                conditions={
+                    "StringLike": {
+                        "geo:IndexName": "runmaprepeat-*",
+                    },
+                },
+            )
+        )
+
+        cognito.CfnIdentityPoolRoleAttachment(
+            self,
+            "IdentityPoolRoleAttachment",
+            identity_pool_id=self.identity_pool.ref,
+            roles={"authenticated": authenticated_role.role_arn},
+        )
+
+        ssm.StringParameter(
+            self,
+            "IdentityPoolIdParam",
+            parameter_name="/runmaprepeat/identity-pool-id",
+            string_value=self.identity_pool.ref,
+        )
+
         CfnOutput(self, "UserPoolId", value=self.user_pool.user_pool_id)
         CfnOutput(
             self,
             "UserPoolClientId",
             value=self.user_pool_client.user_pool_client_id,
         )
+        CfnOutput(self, "IdentityPoolId", value=self.identity_pool.ref)

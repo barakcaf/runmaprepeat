@@ -10,6 +10,7 @@ Amplify.configure({
     Cognito: {
       userPoolId: config.cognito.userPoolId,
       userPoolClientId: config.cognito.userPoolClientId,
+      identityPoolId: config.cognito.identityPoolId,
     },
   },
 });
