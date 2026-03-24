@@ -73,6 +73,46 @@ def validate_run(body: dict[str, Any]) -> list[str]:
         if not isinstance(body["elevationGainMeters"], (int, float)) or body["elevationGainMeters"] < 0:
             errors.append("elevationGainMeters must be a non-negative number")
 
+    if "audio" in body:
+        errors.extend(validate_audio(body["audio"]))
+
+    return errors
+
+
+_AUDIO_TYPES = ("music", "podcast")
+_MUSIC_SUBTYPES = ("artist", "playlist")
+_ARTIST_FORMATS = ("album", "mix")
+
+
+def validate_audio(audio: Any) -> list[str]:
+    """Validate the audio field on a run. Returns list of error messages."""
+    errors: list[str] = []
+
+    if not isinstance(audio, dict):
+        return ["audio must be an object"]
+
+    audio_type = audio.get("type")
+    if audio_type not in _AUDIO_TYPES:
+        errors.append(f"audio.type must be one of: {', '.join(_AUDIO_TYPES)}")
+        return errors
+
+    name = audio.get("name")
+    if not isinstance(name, str) or not name.strip():
+        errors.append("audio.name is required and must be a non-empty string")
+
+    if "detail" in audio:
+        if not isinstance(audio["detail"], str):
+            errors.append("audio.detail must be a string")
+
+    if audio_type == "music":
+        subtype = audio.get("subtype")
+        if subtype not in _MUSIC_SUBTYPES:
+            errors.append(f"audio.subtype must be one of: {', '.join(_MUSIC_SUBTYPES)}")
+        elif subtype == "artist":
+            fmt = audio.get("format")
+            if fmt not in _ARTIST_FORMATS:
+                errors.append(f"audio.format must be one of: {', '.join(_ARTIST_FORMATS)}")
+
     return errors
 
 
