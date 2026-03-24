@@ -18,7 +18,7 @@ class AuthStack(Stack):
             self,
             "RunMapRepeatUserPool",
             user_pool_name="runmaprepeat-users",
-            self_sign_up_enabled=False,
+            self_sign_up_enabled=True,
             sign_in_aliases=cognito.SignInAliases(email=True),
             auto_verify=cognito.AutoVerifiedAttrs(email=True),
             password_policy=cognito.PasswordPolicy(

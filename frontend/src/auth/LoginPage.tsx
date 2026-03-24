@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthProvider";
 import styles from "../styles/LoginPage.module.css";
 
@@ -11,6 +11,8 @@ export function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { signIn } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const justRegistered = (location.state as { registered?: boolean })?.registered;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -38,6 +40,9 @@ export function LoginPage() {
         <p className={styles.subtitle}>Sign in to your account</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
+          {justRegistered && (
+            <div className={styles.success}>Account created! Sign in to get started.</div>
+          )}
           {error && <div className={styles.error}>{error}</div>}
 
           <label className={styles.label}>
@@ -71,6 +76,10 @@ export function LoginPage() {
           >
             {isSubmitting ? "Signing in..." : "Sign in"}
           </button>
+
+          <p className={styles.link}>
+            Don't have an account? <Link to="/register">Create one</Link>
+          </p>
         </form>
       </div>
     </div>

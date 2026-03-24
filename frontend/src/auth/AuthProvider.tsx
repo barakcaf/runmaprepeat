@@ -10,6 +10,8 @@ import type { ReactNode } from "react";
 import {
   signIn as amplifySignIn,
   signOut as amplifySignOut,
+  signUp as amplifySignUp,
+  confirmSignUp as amplifyConfirmSignUp,
   getCurrentUser,
   fetchUserAttributes,
 } from "@aws-amplify/auth";
@@ -25,6 +27,8 @@ interface AuthContextValue {
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  signUp: (email: string, password: string) => Promise<void>;
+  confirmSignUp: (email: string, code: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -67,6 +71,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const signUp = useCallback(async (email: string, password: string) => {
+    await amplifySignUp({ username: email, password, options: { userAttributes: { email } } });
+  }, []);
+
+  const confirmSignUpFn = useCallback(async (email: string, code: string) => {
+    await amplifyConfirmSignUp({ username: email, confirmationCode: code });
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -74,8 +86,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading,
       signIn,
       signOut,
+      signUp,
+      confirmSignUp: confirmSignUpFn,
     }),
-    [user, isLoading, signIn, signOut]
+    [user, isLoading, signIn, signOut, signUp, confirmSignUpFn]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

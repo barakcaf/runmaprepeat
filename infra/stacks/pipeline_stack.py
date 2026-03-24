@@ -51,6 +51,10 @@ class PipelineStack(Stack):
                         value="/runmaprepeat/api-url",
                         type=codebuild.BuildEnvironmentVariableType.PARAMETER_STORE,
                     ),
+                    "VITE_IDENTITY_POOL_ID": codebuild.BuildEnvironmentVariable(
+                        value="/runmaprepeat/identity-pool-id",
+                        type=codebuild.BuildEnvironmentVariableType.PARAMETER_STORE,
+                    ),
                     "TELEGRAM_BOT_TOKEN": codebuild.BuildEnvironmentVariable(
                         value="/runmaprepeat/telegram-bot-token",
                         type=codebuild.BuildEnvironmentVariableType.PARAMETER_STORE,
