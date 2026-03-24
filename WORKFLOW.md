@@ -6,7 +6,7 @@
 |-------|------|----------|
 | **Loki** | Orchestrator — architecture, requirements, DevOps, code review oversight, spawns agents | Barak's requests, PR review notifications, pipeline events |
 | **Claude Code** | Coding agent — implements features, fixes bugs, writes tests, addresses PR feedback | Spawned by Loki with specific task instructions |
-| **PR Review Agent** | Automated reviewer — checks quality, tests, security, conventions | GitHub Action on every PR open/update |
+| **CI (GitHub Actions)** | Runs tests, posts results, notifies Loki | GitHub Action on every PR open/update |
 
 ## Development Flow
 
@@ -19,19 +19,22 @@
         ↓
 4. Loki opens PR (or Claude Code does via gh cli)
         ↓
-5. PR Review Agent runs automatically:
-   - Runs tests (frontend, backend, CDK)
-   - Reviews diff against project standards
-   - Posts: APPROVE / REQUEST_CHANGES / COMMENT
+5. GitHub Actions runs tests automatically, notifies Loki via Telegram
         ↓
-6a. If APPROVE → Loki merges (or notifies Barak for manual merge)
-6b. If REQUEST_CHANGES → Loki reads feedback, spawns Claude Code to fix
+6. Loki reviews the PR:
+   - Reads the diff (gh pr diff)
+   - Checks test results
+   - Reviews against project standards (AGENTS.md)
+   - Posts: APPROVE / REQUEST_CHANGES / COMMENT on the PR
         ↓
-7. Claude Code pushes fixes to same branch
+7a. If APPROVE → Loki merges (or notifies Barak for manual merge)
+7b. If REQUEST_CHANGES → Loki spawns Claude Code to fix
         ↓
-8. PR Review Agent re-reviews (back to step 5)
+8. Claude Code pushes fixes to same branch
         ↓
-9. On merge → CodePipeline deploys → Telegram notification
+9. CI re-runs tests, Loki re-reviews (back to step 5)
+        ↓
+10. On merge → CodePipeline deploys → Telegram notification
 ```
 
 ## Branch Strategy
