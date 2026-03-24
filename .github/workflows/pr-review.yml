@@ -1,0 +1,177 @@
+name: PR Review Agent
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Automated PR Review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          DIFF=$(git diff origin/${{ github.base_ref }}...HEAD)
+          echo "diff<<DIFF_EOF" >> $GITHUB_OUTPUT
+          echo "$DIFF" >> $GITHUB_OUTPUT
+          echo "DIFF_EOF" >> $GITHUB_OUTPUT
+
+      - name: Get changed files list
+        id: files
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          echo "files<<FILES_EOF" >> $GITHUB_OUTPUT
+          echo "$FILES" >> $GITHUB_OUTPUT
+          echo "FILES_EOF" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+        continue-on-error: true
+
+      - name: Run frontend tests
+        id: frontend-tests
+        working-directory: frontend
+        run: npm test -- --run 2>&1 | tee /tmp/frontend-test-output.txt
+        continue-on-error: true
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          pip install -r requirements.txt 2>/dev/null || true
+          pip install pytest 2>/dev/null || true
+        continue-on-error: true
+
+      - name: Run backend tests
+        id: backend-tests
+        working-directory: backend
+        run: pytest --tb=short 2>&1 | tee /tmp/backend-test-output.txt
+        continue-on-error: true
+
+      - name: Install CDK dependencies
+        working-directory: infra
+        run: |
+          pip install -r requirements.txt 2>/dev/null || true
+        continue-on-error: true
+
+      - name: Run CDK tests
+        id: cdk-tests
+        working-directory: infra
+        run: pytest --tb=short 2>&1 | tee /tmp/cdk-test-output.txt
+        continue-on-error: true
+
+      - name: Review with Claude
+        id: claude-review
+        uses: anthropics/anthropic-ai-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: claude-sonnet-4-20250514
+          prompt: |
+            You are a senior code reviewer for RunMapRepeat, a personal exercise run tracker built with React/TypeScript frontend, Python Lambda backend, and AWS CDK infrastructure.
+
+            Review this PR against the project standards defined below.
+
+            ## Project Standards (from AGENTS.md)
+
+            ### Code Quality
+            - Frontend: Functional React components, hooks, strict TypeScript (no `any`), CSS modules
+            - Backend: Python 3.12+, type hints on all functions, structured logging (no print), handlers return {statusCode, headers, body}
+            - Conventional commits (feat:, fix:, chore:, docs:, test:)
+
+            ### Testing Requirements
+            - Every new feature needs tests (unit at minimum)
+            - Frontend: Vitest + React Testing Library
+            - Backend: pytest
+            - Infrastructure: CDK assertions
+
+            ### Security (Critical — block PR if violated)
+            - No hardcoded secrets, credentials, API keys, or account IDs
+            - No public S3 buckets — serve through CloudFront only
+            - No disabled Cognito authorizer on API routes
+            - No self-registration on Cognito
+            - No `Principal: "*"` without scoped conditions in resource policies
+            - DynamoDB access must be scoped by userId (Cognito sub)
+            - HTTPS everywhere
+
+            ### Architecture
+            - Lambda handlers < 100 lines — split into modules
+            - All API calls through central `api/` module on frontend
+            - DynamoDB through data access layer (not inline in handlers)
+            - CDK: no hardcoded account IDs/ARNs, use SSM/context
+            - Lambda: ARM64 architecture
+
+            ## Changed Files
+            ${{ steps.files.outputs.files }}
+
+            ## Diff
+            ```
+            ${{ steps.diff.outputs.diff }}
+            ```
+
+            ## Test Results
+            Frontend tests: ${{ steps.frontend-tests.outcome }}
+            Backend tests: ${{ steps.backend-tests.outcome }}
+            CDK tests: ${{ steps.cdk-tests.outcome }}
+
+            ## Review Checklist
+            For each item, mark ✅ (pass), ❌ (fail), or ⚠️ (warning):
+
+            1. **Code Quality** — follows TypeScript/Python conventions, clean and readable
+            2. **Tests Present** — new functionality has corresponding tests
+            3. **Tests Passing** — all test suites pass
+            4. **Security** — no hardcoded secrets, proper auth, safe resource policies
+            5. **Error Handling** — errors are caught and handled appropriately
+            6. **No Unnecessary Dependencies** — check if stdlib or existing deps cover it
+            7. **Logging** — proper logging, no console.log/print
+            8. **Types** — strict TypeScript (no `any`), Python type hints present
+
+            ## Output Format
+            Start with a one-line summary: APPROVE, REQUEST_CHANGES, or COMMENT.
+            Then the checklist with brief notes per item.
+            Then specific file-level comments for any issues found.
+            Be constructive and specific — explain WHY something is an issue and suggest a fix.
+            Keep it concise. Don't praise things that are just baseline expectations.
+
+      - name: Post review comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const review = `${{ steps.claude-review.outputs.response }}`;
+
+            // Determine review action
+            let event = 'COMMENT';
+            if (review.startsWith('APPROVE') || review.includes('\nAPPROVE')) {
+              event = 'APPROVE';
+            } else if (review.startsWith('REQUEST_CHANGES') || review.includes('\nREQUEST_CHANGES')) {
+              event = 'REQUEST_CHANGES';
+            }
+
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              body: `## 🤖 Automated PR Review\n\n${review}`,
+              event: event,
+            });
