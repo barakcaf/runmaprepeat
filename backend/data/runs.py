@@ -79,6 +79,23 @@ def list_runs(user_id: str) -> list[dict[str, Any]]:
     return [_strip_keys(dict(item)) for item in response.get("Items", [])]
 
 
+def list_all_runs(user_id: str) -> list[dict[str, Any]]:
+    """List all runs for a user with full pagination. Returns all items."""
+    table = get_table()
+    items: list[dict[str, Any]] = []
+    kwargs: dict[str, Any] = {
+        "KeyConditionExpression": Key("userId").eq(user_id) & Key("sk").begins_with(SK_PREFIX),
+    }
+    while True:
+        response = table.query(**kwargs)
+        items.extend(response.get("Items", []))
+        last_key = response.get("LastEvaluatedKey")
+        if not last_key:
+            break
+        kwargs["ExclusiveStartKey"] = last_key
+    return [_strip_keys(dict(item)) for item in items]
+
+
 def update_run(user_id: str, run_id: str, update_data: dict[str, Any]) -> dict[str, Any] | None:
     """Update an existing run record. Returns updated item or None if not found."""
     table = get_table()

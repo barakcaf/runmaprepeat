@@ -55,9 +55,22 @@ class ApiStack(Stack):
             timeout=Duration.seconds(10),
         )
 
+        # Stats handler
+        stats_fn = _lambda.Function(
+            self,
+            "StatsHandler",
+            runtime=_lambda.Runtime.PYTHON_3_12,
+            architecture=_lambda.Architecture.ARM_64,
+            handler="handlers.stats.handler",
+            code=_lambda.Code.from_asset("../backend"),
+            environment=lambda_env,
+            timeout=Duration.seconds(10),
+        )
+
         # Grant DynamoDB access
         table.grant_read_write_data(profile_fn)
         table.grant_read_write_data(runs_fn)
+        table.grant_read_data(stats_fn)
 
         # Cognito authorizer
         authorizer = apigw.CognitoUserPoolsAuthorizer(
@@ -102,5 +115,10 @@ class ApiStack(Stack):
 
         complete_resource = run_resource.add_resource("complete")
         complete_resource.add_method("POST", runs_integration, **auth_method_options)
+
+        # Stats routes
+        stats_resource = api.root.add_resource("stats")
+        stats_integration = apigw.LambdaIntegration(stats_fn)
+        stats_resource.add_method("GET", stats_integration, **auth_method_options)
 
         CfnOutput(self, "ApiUrl", value=api.url)
