@@ -73,8 +73,11 @@ AWS Location Service (maps + route calculator)
 - Tests must pass before merge — enforced by CI
 
 ### Coverage Requirements (enforced during code review)
-- **Frontend:** Every new page/component MUST have Playwright E2E tests covering core user flows + Vitest unit tests for utilities and component rendering
-- **Backend:** Every Lambda handler MUST have pytest coverage for all HTTP methods, success paths, error paths, validation errors, and edge cases. Aim for >90% handler coverage.
+- **All new functionality MUST include tests** — features, bug fixes, refactors. No exceptions.
+- **Bug fixes MUST include a regression test** that would have caught the bug before the fix.
+- **"Tests pass" is not enough** — reviewers must verify that new/changed code paths are actually covered by tests, not just that existing tests still pass.
+- **Frontend:** Every new page/component MUST have Playwright E2E tests covering core user flows + Vitest unit tests for utilities and component rendering.
+- **Backend:** Every Lambda handler MUST have pytest coverage for all HTTP methods, success paths, error paths, validation errors, and edge cases. Data layer changes need their own tests (not just handler-level mocks). Aim for >90% handler coverage.
 - **PRs without adequate test coverage will be rejected during review.**
 
 ## What NOT to Do

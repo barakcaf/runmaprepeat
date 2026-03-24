@@ -23,6 +23,8 @@ cd infra && pip install -r requirements.txt && cdk synth --quiet
 
 ## Key Rules
 - **Run tests before finishing** — always verify, never trust blindly
+- **All new code and bug fixes MUST have tests** — no exceptions. Bug fixes need a regression test that would have caught the original bug. "Tests pass" ≠ "new code is tested."
+- **Data layer changes need their own tests** — don't just mock at the handler level; test the actual functions that touch DynamoDB.
 - **Small, focused commits** — conventional commits: `feat:`, `fix:`, `test:`, `chore:`, `docs:`
 - **Never modify `infra/` without explicit instructions** — infrastructure changes need review
 - **Never hardcode** secrets, API keys, account IDs, or ARNs
