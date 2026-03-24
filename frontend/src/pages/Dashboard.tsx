@@ -1,11 +1,13 @@
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
-import { listRuns } from "../api/client";
+import { listRuns, getStats } from "../api/client";
 import { RouteMap } from "../components/Map/RouteMap";
 import { StatsCards } from "../components/Dashboard/StatsCards";
+import { WeeklyDistanceChart } from "../components/Dashboard/WeeklyDistanceChart";
 import { formatDuration, formatPace, formatDate, formatDateTime, formatCalories, formatAudio } from "../utils/format";
 import type { Run } from "../types/run";
+import type { WeeklyDistance } from "../types/stats";
 import shared from "../styles/shared.module.css";
 import styles from "../styles/Dashboard.module.css";
 
@@ -13,15 +15,19 @@ export function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [runs, setRuns] = useState<Run[]>([]);
+  const [weeklyDistances, setWeeklyDistances] = useState<WeeklyDistance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    listRuns()
-      .then((data) => {
-        if (!cancelled) setRuns(data);
+    Promise.all([listRuns(), getStats()])
+      .then(([runsData, statsData]) => {
+        if (!cancelled) {
+          setRuns(runsData);
+          setWeeklyDistances(statsData.weeklyDistances);
+        }
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message);
@@ -65,6 +71,8 @@ export function Dashboard() {
       </div>
 
       <StatsCards />
+
+      <WeeklyDistanceChart weeklyDistances={weeklyDistances} />
 
       <h2 className={styles.sectionTitle}>Recent Runs</h2>
 
