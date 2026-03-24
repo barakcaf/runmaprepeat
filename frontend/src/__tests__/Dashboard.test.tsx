@@ -5,6 +5,7 @@ import { Dashboard } from "../pages/Dashboard";
 import type { Run } from "../types/run";
 
 const mockListRuns = vi.fn();
+const mockGetStats = vi.fn();
 
 beforeAll(() => {
   vi.mock("maplibre-gl", () => {
@@ -32,6 +33,7 @@ beforeAll(() => {
 
   vi.mock("../api/client", () => ({
     listRuns: (...args: unknown[]) => mockListRuns(...args),
+    getStats: (...args: unknown[]) => mockGetStats(...args),
   }));
 
   vi.mock("../auth/AuthProvider", () => ({
@@ -81,6 +83,17 @@ function renderDashboard() {
 describe("Dashboard map integration", () => {
   beforeEach(() => {
     mockListRuns.mockReset();
+    mockGetStats.mockReset();
+    mockGetStats.mockResolvedValue({
+      currentWeek: { totalDistanceMeters: 0, totalDurationSeconds: 0, runCount: 0, avgPaceSecondsPerKm: 0 },
+      previousWeek: { totalDistanceMeters: 0, totalDurationSeconds: 0, runCount: 0, avgPaceSecondsPerKm: 0 },
+      currentMonth: { totalDistanceMeters: 0, totalDurationSeconds: 0, runCount: 0, avgPaceSecondsPerKm: 0 },
+      previousMonth: { totalDistanceMeters: 0, totalDurationSeconds: 0, runCount: 0, avgPaceSecondsPerKm: 0 },
+      weeklyDistances: [],
+      monthlyDistances: [],
+      personalRecords: { longestRunMeters: 0, fastestPaceSecondsPerKm: 0, mostDistanceInWeekMeters: 0, mostRunsInWeek: 0 },
+      allTime: { totalDistanceMeters: 0, totalRuns: 0, totalDurationSeconds: 0 },
+    });
   });
 
   it("renders RouteMap for runs with route data", async () => {
