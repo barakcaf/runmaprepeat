@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import aws_cdk as cdk
 
+from stacks.api_stack import ApiStack
 from stacks.auth_stack import AuthStack
+from stacks.data_stack import DataStack
 from stacks.frontend_stack import FrontendStack
 from stacks.pipeline_stack import PipelineStack
 
@@ -9,8 +11,18 @@ app = cdk.App()
 
 env = cdk.Environment(region="us-east-1")
 
-AuthStack(app, "RunMapRepeat-Auth", env=env)
+auth_stack = AuthStack(app, "RunMapRepeat-Auth", env=env)
 FrontendStack(app, "RunMapRepeat-Frontend", env=env)
+data_stack = DataStack(app, "RunMapRepeat-Data", env=env)
+
+ApiStack(
+    app,
+    "RunMapRepeat-Api",
+    user_pool=auth_stack.user_pool,
+    table=data_stack.table,
+    env=env,
+)
+
 PipelineStack(
     app,
     "RunMapRepeat-Pipeline",
