@@ -112,6 +112,20 @@ class PipelineStack(Stack):
             self,
             "FrontendPipeline",
             pipeline_name="RunMapRepeat-Frontend-Pipeline",
+            pipeline_type=codepipeline.PipelineType.V2,
+            triggers=[
+                codepipeline.TriggerProps(
+                    provider_type=codepipeline.ProviderType.CODE_STAR_SOURCE_CONNECTION,
+                    git_configuration=codepipeline.GitConfiguration(
+                        source_action=source_action,
+                        push_filter=[
+                            codepipeline.GitPushFilter(
+                                branches_includes=["main"],
+                            ),
+                        ],
+                    ),
+                ),
+            ],
             stages=[
                 codepipeline.StageProps(
                     stage_name="Source",

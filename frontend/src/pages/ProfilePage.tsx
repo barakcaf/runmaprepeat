@@ -13,6 +13,8 @@ export function ProfilePage() {
   const [displayName, setDisplayName] = useState("");
   const [weightKg, setWeightKg] = useState("");
   const [heightCm, setHeightCm] = useState("");
+  const [weeklyEmail, setWeeklyEmail] = useState(false);
+  const [monthlyEmail, setMonthlyEmail] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,6 +27,8 @@ export function ProfilePage() {
     displayName: "",
     weightKg: "",
     heightCm: "",
+    weeklyEmail: false,
+    monthlyEmail: false,
   });
 
   useEffect(() => {
@@ -35,11 +39,15 @@ export function ProfilePage() {
           displayName: profile.displayName ?? "",
           weightKg: profile.weightKg?.toString() ?? "",
           heightCm: profile.heightCm?.toString() ?? "",
+          weeklyEmail: profile.emailSubscriptions?.weekly ?? false,
+          monthlyEmail: profile.emailSubscriptions?.monthly ?? false,
         };
         setEmail(values.email);
         setDisplayName(values.displayName);
         setWeightKg(values.weightKg);
         setHeightCm(values.heightCm);
+        setWeeklyEmail(values.weeklyEmail);
+        setMonthlyEmail(values.monthlyEmail);
         setSavedValues(values);
       })
       .catch((err: unknown) => {
@@ -79,6 +87,10 @@ export function ProfilePage() {
       displayName: displayName.trim(),
       heightCm: Number(heightCm),
       weightKg: Number(weightKg),
+      emailSubscriptions: {
+        weekly: weeklyEmail,
+        monthly: monthlyEmail,
+      },
     };
 
     try {
@@ -88,6 +100,8 @@ export function ProfilePage() {
         displayName: data.displayName,
         weightKg: data.weightKg.toString(),
         heightCm: data.heightCm.toString(),
+        weeklyEmail: weeklyEmail,
+        monthlyEmail: monthlyEmail,
       };
       setSavedValues(newSaved);
       setSuccess(true);
@@ -111,6 +125,8 @@ export function ProfilePage() {
     setDisplayName(savedValues.displayName);
     setWeightKg(savedValues.weightKg);
     setHeightCm(savedValues.heightCm);
+    setWeeklyEmail(savedValues.weeklyEmail);
+    setMonthlyEmail(savedValues.monthlyEmail);
     setError(null);
     setSuccess(false);
     setMode("view");
@@ -153,6 +169,12 @@ export function ProfilePage() {
           <div className={styles.fieldGroup}>
             <span className={styles.fieldLabel}>Weight (kg)</span>
             <span className={styles.fieldValue} data-testid="view-weightKg">{weightKg || "—"}</span>
+          </div>
+
+          <div className={styles.fieldGroup}>
+            <span className={styles.fieldLabel}>Email Subscriptions</span>
+            <span className={styles.fieldValue} data-testid="view-weeklyEmail">Weekly: {weeklyEmail ? "On" : "Off"}</span>
+            <span className={styles.fieldValue} data-testid="view-monthlyEmail">Monthly: {monthlyEmail ? "On" : "Off"}</span>
           </div>
 
           <button
@@ -226,6 +248,26 @@ export function ProfilePage() {
               onChange={(e) => setWeightKg(e.target.value)}
               required
             />
+          </div>
+
+          <div className={shared.formGroup}>
+            <label className={shared.formLabel}>Email Subscriptions</label>
+            <label className={styles.toggleLabel}>
+              <input
+                type="checkbox"
+                checked={weeklyEmail}
+                onChange={(e) => setWeeklyEmail(e.target.checked)}
+              />
+              Weekly summary email
+            </label>
+            <label className={styles.toggleLabel}>
+              <input
+                type="checkbox"
+                checked={monthlyEmail}
+                onChange={(e) => setMonthlyEmail(e.target.checked)}
+              />
+              Monthly summary email
+            </label>
           </div>
 
           <div className={styles.buttonRow}>
