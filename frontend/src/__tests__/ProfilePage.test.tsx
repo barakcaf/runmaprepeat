@@ -60,12 +60,44 @@ describe("ProfilePage", () => {
       expect(screen.getByTestId("view-weightKg")).toHaveTextContent("75");
     });
 
+    it("displays email subscription state as read-only text", async () => {
+      renderPage();
+      await waitForLoaded();
+
+      expect(screen.getByTestId("view-weeklyEmail")).toHaveTextContent("Weekly: Off");
+      expect(screen.getByTestId("view-monthlyEmail")).toHaveTextContent("Monthly: Off");
+    });
+
+    it("displays subscription state from profile data", async () => {
+      const { getProfile } = await import("../api/client");
+      (getProfile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        email: "test@example.com",
+        displayName: "Test User",
+        weightKg: 75,
+        heightCm: 180,
+        emailSubscriptions: { weekly: true, monthly: true },
+      });
+      renderPage();
+      await waitForLoaded();
+
+      expect(screen.getByTestId("view-weeklyEmail")).toHaveTextContent("Weekly: On");
+      expect(screen.getByTestId("view-monthlyEmail")).toHaveTextContent("Monthly: On");
+    });
+
     it("does not render form inputs in view mode", async () => {
       renderPage();
       await waitForLoaded();
 
       expect(screen.queryByLabelText("Email *")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Display Name *")).not.toBeInTheDocument();
+    });
+
+    it("does not render subscription checkboxes in view mode", async () => {
+      renderPage();
+      await waitForLoaded();
+
+      expect(screen.queryByLabelText("Weekly summary email")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Monthly summary email")).not.toBeInTheDocument();
     });
 
     it("renders Edit button", async () => {
@@ -113,6 +145,46 @@ describe("ProfilePage", () => {
       expect(screen.getByLabelText("Weight (kg) *")).toHaveValue(75);
     });
 
+    it("renders email subscription toggles in edit mode", async () => {
+      await enterEditMode();
+
+      expect(screen.getByLabelText("Weekly summary email")).toBeInTheDocument();
+      expect(screen.getByLabelText("Monthly summary email")).toBeInTheDocument();
+    });
+
+    it("email subscription toggles default to unchecked", async () => {
+      await enterEditMode();
+
+      expect(screen.getByLabelText("Weekly summary email")).not.toBeChecked();
+      expect(screen.getByLabelText("Monthly summary email")).not.toBeChecked();
+    });
+
+    it("populates email subscription toggles from profile data", async () => {
+      const { getProfile } = await import("../api/client");
+      (getProfile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        email: "test@example.com",
+        displayName: "Test User",
+        weightKg: 75,
+        heightCm: 180,
+        emailSubscriptions: { weekly: true, monthly: true },
+      });
+      renderPage();
+      await waitForLoaded();
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+      expect(screen.getByLabelText("Weekly summary email")).toBeChecked();
+      expect(screen.getByLabelText("Monthly summary email")).toBeChecked();
+    });
+
+    it("toggles weekly email subscription", async () => {
+      await enterEditMode();
+
+      const weeklyToggle = screen.getByLabelText("Weekly summary email");
+      expect(weeklyToggle).not.toBeChecked();
+      fireEvent.click(weeklyToggle);
+      expect(weeklyToggle).toBeChecked();
+    });
+
     it("shows Save and Cancel buttons", async () => {
       await enterEditMode();
 
@@ -155,6 +227,21 @@ describe("ProfilePage", () => {
       expect(screen.getByTestId("view-displayName")).toHaveTextContent("Test User");
       expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     });
+
+    it("restores email subscription toggles on cancel", async () => {
+      renderPage();
+      await waitForLoaded();
+
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+      const weeklyToggle = screen.getByLabelText("Weekly summary email");
+      fireEvent.click(weeklyToggle);
+      expect(weeklyToggle).toBeChecked();
+
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      // Back in view mode with original subscription state
+      expect(screen.getByTestId("view-weeklyEmail")).toHaveTextContent("Weekly: Off");
+    });
   });
 
   describe("save", () => {
@@ -179,9 +266,30 @@ describe("ProfilePage", () => {
         displayName: "New Name",
         heightCm: 180,
         weightKg: 75,
+        emailSubscriptions: { weekly: false, monthly: false },
       });
       expect(screen.getByText("Profile saved!")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+
+    it("sends emailSubscriptions on save", async () => {
+      renderPage();
+      await waitForLoaded();
+
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+      const weeklyToggle = screen.getByLabelText("Weekly summary email");
+      fireEvent.click(weeklyToggle);
+
+      const form = screen.getByRole("button", { name: "Save" }).closest("form") as HTMLFormElement;
+      fireEvent.submit(form);
+
+      await waitFor(() => {
+        expect(mockUpdateProfile).toHaveBeenCalledWith(
+          expect.objectContaining({
+            emailSubscriptions: { weekly: true, monthly: false },
+          })
+        );
+      });
     });
 
     it("shows validation error for invalid email on save", async () => {
