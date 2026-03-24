@@ -109,7 +109,7 @@ def _create_run(user_id: str, event: dict[str, Any]) -> dict[str, Any]:
         "updatedAt": now,
     }
 
-    for field in ("title", "route", "distanceMeters", "durationSeconds", "elevationGainMeters", "notes"):
+    for field in ("title", "route", "distanceMeters", "durationSeconds", "elevationGainMeters", "notes", "audio"):
         if field in body:
             run_data[field] = body[field]
 
@@ -158,7 +158,7 @@ def _update_run(user_id: str, run_id: str | None, event: dict[str, Any]) -> dict
         return _error(400, "; ".join(errors))
 
     update_data: dict[str, Any] = {"updatedAt": datetime.now(timezone.utc).isoformat()}
-    for field in ("status", "runDate", "title", "route", "distanceMeters", "durationSeconds", "elevationGainMeters", "notes"):
+    for field in ("status", "runDate", "title", "route", "distanceMeters", "durationSeconds", "elevationGainMeters", "notes", "audio"):
         if field in body:
             update_data[field] = body[field]
 
