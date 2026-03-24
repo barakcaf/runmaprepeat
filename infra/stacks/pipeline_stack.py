@@ -86,7 +86,7 @@ class PipelineStack(Stack):
             owner="barakcaf",
             repo="runmaprepeat",
             branch="main",
-            connection_arn=f"arn:aws:codeconnections:{self.region}:{self.account}:connection/*",
+            connection_arn="REDACTED_CONNECTION_ARN",
             output=source_output,
         )
 
