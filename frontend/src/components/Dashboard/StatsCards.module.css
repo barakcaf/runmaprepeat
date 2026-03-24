@@ -1,0 +1,123 @@
+.statsSection {
+  padding: 0 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+@media (min-width: 768px) {
+  .statsGrid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.periodTitle {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 0.75rem 0 0.375rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 0.75rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.cardValue {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  line-height: 1.2;
+}
+
+.cardLabel {
+  font-size: 0.6875rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 0.125rem;
+}
+
+.comparison {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  margin-top: 0.25rem;
+}
+
+.comparisonUp {
+  composes: comparison;
+  color: #2e7d32;
+}
+
+.comparisonDown {
+  composes: comparison;
+  color: #d32f2f;
+}
+
+.comparisonNeutral {
+  composes: comparison;
+  color: #999;
+}
+
+/* Loading skeleton */
+.skeletonCard {
+  background: #fff;
+  border-radius: 12px;
+  padding: 0.75rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.skeletonLine {
+  background: linear-gradient(90deg, #eee 25%, #e0e0e0 50%, #eee 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+.skeletonValue {
+  composes: skeletonLine;
+  height: 1.25rem;
+  width: 60%;
+  margin-bottom: 0.375rem;
+}
+
+.skeletonLabel {
+  composes: skeletonLine;
+  height: 0.625rem;
+  width: 80%;
+  margin-bottom: 0.25rem;
+}
+
+.skeletonComparison {
+  composes: skeletonLine;
+  height: 0.625rem;
+  width: 40%;
+}
+
+.skeletonTitle {
+  composes: skeletonLine;
+  height: 0.875rem;
+  width: 120px;
+  margin: 0.75rem 0 0.375rem;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Empty state */
+.emptyState {
+  text-align: center;
+  color: #999;
+  padding: 1.5rem 1rem;
+  font-size: 0.875rem;
+}
