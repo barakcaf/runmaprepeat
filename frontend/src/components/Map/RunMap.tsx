@@ -3,11 +3,9 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Coordinate } from "../../types/run";
 import { calculateRouteDistance, formatDistance } from "../../utils/distance";
+import { DEFAULT_CENTER, DEFAULT_ZOOM, TILE_STYLE } from "./mapConfig";
 import styles from "./RunMap.module.css";
 
-const TILE_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
-const DEFAULT_CENTER: [number, number] = [34.7818, 32.0853]; // Tel Aviv [lng, lat]
-const DEFAULT_ZOOM = 13;
 const ROUTE_SOURCE_ID = "route-source";
 const ROUTE_LAYER_ID = "route-layer";
 
