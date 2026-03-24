@@ -26,7 +26,7 @@ def test_rest_api_created() -> None:
 
 def test_lambda_functions_created() -> None:
     template = _create_api_stack()
-    template.resource_count_is("AWS::Lambda::Function", 2)
+    template.resource_count_is("AWS::Lambda::Function", 3)
 
 
 def test_lambda_uses_arm64() -> None:
