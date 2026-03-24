@@ -61,7 +61,7 @@ def test_converted_result_is_json_serializable() -> None:
         "weightKg": Decimal("75"),
         "heightCm": Decimal("180.5"),
         "displayName": "Test User",
-        "birthDate": "1990-01-01",
+        "email": "user@example.com",
     }
     result = _convert_decimals(data)
     # This would raise TypeError if Decimals leaked through
@@ -166,7 +166,7 @@ def test_handler_get_profile_with_decimal_response_is_valid_json(mock_get: Magic
         "weightKg": 80,
         "heightCm": 175,
         "displayName": "Test",
-        "birthDate": "1990-01-01",
+        "email": "test@example.com",
     }
     event = {
         "httpMethod": "GET",

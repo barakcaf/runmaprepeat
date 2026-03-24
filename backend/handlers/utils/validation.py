@@ -8,7 +8,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-ISO_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 ISO_DATETIME_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 ULID_PATTERN = re.compile(r"^[0-9A-Z]{26}$")
 
@@ -26,21 +26,26 @@ def validate_profile(body: dict[str, Any]) -> list[str]:
     """Validate profile update payload. Returns list of error messages."""
     errors: list[str] = []
 
-    if "weightKg" in body:
-        if not isinstance(body["weightKg"], (int, float)) or body["weightKg"] <= 0:
-            errors.append("weightKg must be a positive number")
+    required_fields = ("email", "displayName", "heightCm", "weightKg")
+    for field in required_fields:
+        if field not in body:
+            errors.append(f"{field} is required")
+
+    if "email" in body:
+        if not isinstance(body["email"], str) or not EMAIL_PATTERN.match(body["email"]):
+            errors.append("email must be a valid email address")
+
+    if "displayName" in body:
+        if not isinstance(body["displayName"], str) or len(body["displayName"]) > 100:
+            errors.append("displayName must be a string of 100 characters or less")
 
     if "heightCm" in body:
         if not isinstance(body["heightCm"], (int, float)) or body["heightCm"] <= 0:
             errors.append("heightCm must be a positive number")
 
-    if "birthDate" in body:
-        if not isinstance(body["birthDate"], str) or not ISO_DATE_PATTERN.match(body["birthDate"]):
-            errors.append("birthDate must be a valid ISO date (YYYY-MM-DD)")
-
-    if "displayName" in body:
-        if not isinstance(body["displayName"], str) or len(body["displayName"]) > 100:
-            errors.append("displayName must be a string of 100 characters or less")
+    if "weightKg" in body:
+        if not isinstance(body["weightKg"], (int, float)) or body["weightKg"] <= 0:
+            errors.append("weightKg must be a positive number")
 
     return errors
 

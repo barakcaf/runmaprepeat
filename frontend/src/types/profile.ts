@@ -1,7 +1,7 @@
 export interface Profile {
-  weightKg?: number;
-  heightCm?: number;
-  birthDate?: string;
-  displayName?: string;
+  email: string;
+  displayName: string;
+  heightCm: number;
+  weightKg: number;
   updatedAt?: string;
 }

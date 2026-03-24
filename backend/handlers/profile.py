@@ -60,7 +60,7 @@ def _put_profile(user_id: str, event: dict[str, Any]) -> dict[str, Any]:
         return _error(400, "; ".join(errors))
 
     profile_data = {}
-    for field in ("weightKg", "heightCm", "birthDate", "displayName"):
+    for field in ("email", "displayName", "heightCm", "weightKg"):
         if field in body:
             profile_data[field] = body[field]
 
