@@ -103,7 +103,10 @@ export function RunDetailPage() {
       const dateChanged = editDate !== originalDateStr;
       const timeChanged = editTime !== originalTimeStr;
       if (dateChanged || timeChanged) {
-        runDate = new Date(editDate + "T" + editTime).toISOString();
+        const [year, month, day] = editDate.split("-").map(Number);
+        const [hours, minutes] = editTime.split(":").map(Number);
+        const local = new Date(year, month - 1, day, hours, minutes);
+        runDate = local.toISOString();
       }
 
       const payload: UpdateRunPayload = {
