@@ -1,6 +1,6 @@
 {
   "app": "python3 app.py",
   "context": {
-    "codeconnection_arn": "REDACTED_CONNECTION_ARN"
+    "codeconnection_arn": "arn:aws:codeconnections:us-east-1:579083551251:connection/846e3503-39e0-40e6-824d-c80ca0b25cf3"
   }
 }
