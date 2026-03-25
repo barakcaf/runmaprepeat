@@ -3,6 +3,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Coordinate } from "../../types/run";
 import { calculateRouteDistance, formatDistance } from "../../utils/distance";
+import { calculateRoute } from "../../api/client";
 import { DEFAULT_CENTER, DEFAULT_ZOOM, TILE_STYLE } from "./mapConfig";
 import { setEnglishLabels } from "../../utils/mapLabels";
 import { LocationSearch } from "./LocationSearch";
@@ -10,6 +11,7 @@ import styles from "./RunMap.module.css";
 
 const ROUTE_SOURCE_ID = "route-source";
 const ROUTE_LAYER_ID = "route-layer";
+const ROUTE_SNAP_DEBOUNCE_MS = 300;
 
 interface RunMapProps {
   onRouteChange?: (coords: Coordinate[]) => void;
@@ -22,8 +24,11 @@ export function RunMap({ onRouteChange }: RunMapProps) {
   const coordsRef = useRef<Coordinate[]>([]);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   const draggedRef = useRef(false);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const snapRequestIdRef = useRef(0);
   const [distance, setDistance] = useState(0);
   const [pointCount, setPointCount] = useState(0);
+  const [isSnapping, setIsSnapping] = useState(false);
   const [mapBounds, setMapBounds] = useState<{
     west: number; south: number; east: number; north: number;
   }>();
@@ -46,11 +51,9 @@ export function RunMap({ onRouteChange }: RunMapProps) {
     });
   }, []);
 
-  const updateRoute = useCallback(() => {
+  const setRouteGeometry = useCallback((coords: Coordinate[]) => {
     const map = mapRef.current;
     if (!map) return;
-
-    const coords = coordsRef.current;
     const source = map.getSource(ROUTE_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
     if (source) {
       source.setData({
@@ -62,12 +65,53 @@ export function RunMap({ onRouteChange }: RunMapProps) {
         },
       });
     }
+  }, []);
 
-    const meters = calculateRouteDistance(coords);
-    setDistance(meters);
+  const snapRoute = useCallback((waypoints: Coordinate[]) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    if (waypoints.length < 2) {
+      setIsSnapping(false);
+      return;
+    }
+
+    setIsSnapping(true);
+    const requestId = ++snapRequestIdRef.current;
+
+    debounceTimerRef.current = setTimeout(() => {
+      calculateRoute(waypoints)
+        .then((result) => {
+          if (requestId !== snapRequestIdRef.current) return;
+          setRouteGeometry(result.geometry as Coordinate[]);
+          setDistance(result.distanceMeters);
+          setIsSnapping(false);
+        })
+        .catch(() => {
+          if (requestId !== snapRequestIdRef.current) return;
+          setRouteGeometry(waypoints);
+          setDistance(calculateRouteDistance(waypoints));
+          setIsSnapping(false);
+        });
+    }, ROUTE_SNAP_DEBOUNCE_MS);
+  }, [setRouteGeometry]);
+
+  const updateRoute = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const coords = coordsRef.current;
     setPointCount(coords.length);
     onRouteChange?.(coords);
-  }, [onRouteChange]);
+
+    // Immediate haversine fallback for display
+    setRouteGeometry(coords);
+    setDistance(calculateRouteDistance(coords));
+
+    // Attempt snapped route
+    snapRoute([...coords]);
+  }, [onRouteChange, setRouteGeometry, snapRoute]);
 
   const createMarkerElement = useCallback((index: number): HTMLDivElement => {
     const el = document.createElement("div");
@@ -269,6 +313,9 @@ export function RunMap({ onRouteChange }: RunMapProps) {
     });
 
     return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
       map.remove();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -279,7 +326,9 @@ export function RunMap({ onRouteChange }: RunMapProps) {
       <LocationSearch onSelect={handleLocationSelect} mapBounds={mapBounds} />
       <div className={styles.overlay}>
         <div>
-          <div className={styles.distanceLabel}>Distance</div>
+          <div className={styles.distanceLabel}>
+            Distance{isSnapping && <span className={styles.snapping} data-testid="route-snapping-indicator"> (snapping...)</span>}
+          </div>
           <div className={styles.distance}>{formatDistance(distance)}</div>
         </div>
         <div className={styles.buttons}>

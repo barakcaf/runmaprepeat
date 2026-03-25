@@ -95,6 +95,18 @@ export function getStats(): Promise<Stats> {
   return request<Stats>("/stats");
 }
 
+export interface CalculateRouteResponse {
+  geometry: [number, number][];
+  distanceMeters: number;
+}
+
+export function calculateRoute(waypoints: [number, number][]): Promise<CalculateRouteResponse> {
+  return request<CalculateRouteResponse>("/routes/calculate", {
+    method: "POST",
+    body: JSON.stringify({ waypoints }),
+  });
+}
+
 export interface SpotifySearchResult {
   artists?: SpotifyRef[];
   albums?: SpotifyRef[];
