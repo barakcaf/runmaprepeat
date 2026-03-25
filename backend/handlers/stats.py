@@ -1,3 +1,4 @@
+import os
 """Lambda handler for aggregated run statistics."""
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ logger.setLevel(logging.INFO)
 
 CORS_HEADERS = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": os.environ.get("ALLOWED_ORIGIN", "*"),
     "Access-Control-Allow-Headers": "Content-Type,Authorization",
     "Access-Control-Allow-Methods": "GET,OPTIONS",
 }

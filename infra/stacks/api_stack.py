@@ -28,9 +28,17 @@ class ApiStack(Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
+        allowed_origin = self.node.try_get_context("allowed_origin")
+        if not allowed_origin:
+            raise ValueError(
+                "CDK context 'allowed_origin' is required. "
+                "Set it in cdk.json or pass via -c allowed_origin=https://your-domain"
+            )
+
         # Shared Lambda environment
         lambda_env = {
             "TABLE_NAME": table.table_name,
+            "ALLOWED_ORIGIN": allowed_origin,
         }
 
         # Profile handler
@@ -77,9 +85,7 @@ class ApiStack(Stack):
             architecture=_lambda.Architecture.ARM_64,
             handler="handlers.spotify_search.handler",
             code=_lambda.Code.from_asset("../backend"),
-            environment={
-                "ALLOWED_ORIGIN": self.node.try_get_context("allowed_origin") or "*",
-            },
+            environment=lambda_env,
             timeout=Duration.seconds(10),
         )
         # SSM params use the default aws/ssm KMS key, so no explicit
