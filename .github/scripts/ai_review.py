@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 
 MAX_FILES = 15
 MAX_CHANGED_LINES = 1500
-MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+MODEL_ID = "us.anthropic.claude-opus-4-6-v1"
 MAX_OUTPUT_TOKENS = 4096
 
 SKIP_PATTERNS = (
