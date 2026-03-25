@@ -126,16 +126,31 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (!showDropdown || results.length === 0) return;
-    const selectableResults = results.filter((r) => !isAlreadySelected(r));
+    const selectableIndexes = results
+      .map((r, i) => (!isAlreadySelected(r) ? i : -1))
+      .filter((i) => i !== -1);
+    if (selectableIndexes.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveIndex((prev) => (prev < results.length - 1 ? prev + 1 : 0));
+      setActiveIndex((prev) => {
+        const curPos = selectableIndexes.indexOf(prev);
+        return curPos < selectableIndexes.length - 1
+          ? selectableIndexes[curPos + 1]
+          : selectableIndexes[0];
+      });
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActiveIndex((prev) => (prev > 0 ? prev - 1 : results.length - 1));
+      setActiveIndex((prev) => {
+        const curPos = selectableIndexes.indexOf(prev);
+        return curPos > 0
+          ? selectableIndexes[curPos - 1]
+          : selectableIndexes[selectableIndexes.length - 1];
+      });
     } else if (e.key === "Enter" && activeIndex >= 0) {
       e.preventDefault();
-      handleSelect(results[activeIndex]);
+      if (!isAlreadySelected(results[activeIndex])) {
+        handleSelect(results[activeIndex]);
+      }
     } else if (e.key === "Escape") {
       setShowDropdown(false);
     }
