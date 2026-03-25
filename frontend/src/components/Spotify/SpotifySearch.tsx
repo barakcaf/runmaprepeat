@@ -8,6 +8,13 @@ import styles from "./SpotifySearch.module.css";
 const DEBOUNCE_MS = 300;
 const isValidSpotifyImage = (url: string) => url.startsWith("https://i.scdn.co/");
 
+const TYPE_ORDER: Array<SpotifyRef["type"]> = ["artist", "album", "track"];
+const TYPE_LABELS: Record<SpotifyRef["type"], string> = {
+  artist: "Artists",
+  album: "Albums",
+  track: "Tracks",
+};
+
 interface SpotifySearchProps {
   value: AudioRef[];
   onChange: (audio: AudioRef[]) => void;
@@ -99,9 +106,6 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
   function handleSelect(item: SpotifyRef) {
     if (isAlreadySelected(item) || atMax) return;
     onChange([...value, { ...item, source: "spotify" }]);
-    setQuery("");
-    setShowDropdown(false);
-    setResults([]);
   }
 
   function handleRemove(index: number) {
@@ -116,17 +120,37 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
     setManualArtist("");
   }
 
+  function handleClearAll() {
+    onChange([]);
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (!showDropdown || results.length === 0) return;
+    const selectableIndexes = results
+      .map((r, i) => (!isAlreadySelected(r) ? i : -1))
+      .filter((i) => i !== -1);
+    if (selectableIndexes.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveIndex((prev) => (prev < results.length - 1 ? prev + 1 : 0));
+      setActiveIndex((prev) => {
+        const curPos = selectableIndexes.indexOf(prev);
+        return curPos < selectableIndexes.length - 1
+          ? selectableIndexes[curPos + 1]
+          : selectableIndexes[0];
+      });
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActiveIndex((prev) => (prev > 0 ? prev - 1 : results.length - 1));
+      setActiveIndex((prev) => {
+        const curPos = selectableIndexes.indexOf(prev);
+        return curPos > 0
+          ? selectableIndexes[curPos - 1]
+          : selectableIndexes[selectableIndexes.length - 1];
+      });
     } else if (e.key === "Enter" && activeIndex >= 0) {
       e.preventDefault();
-      handleSelect(results[activeIndex]);
+      if (!isAlreadySelected(results[activeIndex])) {
+        handleSelect(results[activeIndex]);
+      }
     } else if (e.key === "Escape") {
       setShowDropdown(false);
     }
@@ -156,6 +180,26 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
     }
   }
 
+  function groupedResults(): Array<{ type: SpotifyRef["type"]; label: string; items: SpotifyRef[] }> {
+    const groups: Array<{ type: SpotifyRef["type"]; label: string; items: SpotifyRef[] }> = [];
+    for (const t of TYPE_ORDER) {
+      const items = results.filter((r) => r.type === t);
+      if (items.length > 0) {
+        groups.push({ type: t, label: TYPE_LABELS[t], items });
+      }
+    }
+    return groups;
+  }
+
+  function getFlatIndex(type: SpotifyRef["type"], indexInGroup: number): number {
+    let offset = 0;
+    for (const t of TYPE_ORDER) {
+      if (t === type) return offset + indexInGroup;
+      offset += results.filter((r) => r.type === t).length;
+    }
+    return offset + indexInGroup;
+  }
+
   return (
     <div className={styles.container} ref={containerRef}>
       <div className={styles.tabToggle}>
@@ -178,8 +222,8 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
       {mode === "spotify" ? (
         <div>
           {spotifyItems.length > 0 && (
-            <div className={styles.chipList} data-testid="spotify-chip-list">
-              {spotifyItems.map((item, idx) => {
+            <div className={styles.chipTray} data-testid="spotify-chip-list">
+              {spotifyItems.map((item) => {
                 const originalIndex = value.indexOf(item);
                 return (
                   <div key={`${item.spotifyId}-${item.type}`} className={styles.chip} data-testid="spotify-chip">
@@ -190,58 +234,81 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
                         alt={item.name}
                       />
                     )}
-                    <div className={styles.chipInfo}>
-                      <div className={styles.chipName}>{item.name}</div>
+                    <div className={styles.chipText}>
+                      <span className={styles.chipName}>{item.name}</span>
                       {item.artistName && (
-                        <div className={styles.chipSubtext}>{item.artistName}</div>
+                        <span className={styles.chipArtist}>{item.artistName}</span>
                       )}
                     </div>
+                    <span className={styles.chipTypeBadge}>{item.type}</span>
                     <button
                       type="button"
                       className={styles.chipRemove}
                       onClick={() => handleRemove(originalIndex)}
                       aria-label={`Remove ${item.name}`}
                     >
-                      x
+                      &times;
                     </button>
                   </div>
                 );
               })}
+              {spotifyItems.length >= 2 && (
+                <button
+                  type="button"
+                  className={styles.clearAll}
+                  onClick={handleClearAll}
+                  data-testid="clear-all"
+                >
+                  Clear all
+                </button>
+              )}
             </div>
           )}
 
-          {!atMax && (
-            <>
-              <input
-                className={styles.searchInput}
-                type="text"
-                placeholder={spotifyItems.length > 0
-                  ? `Add another (${spotifyItems.length}/${MAX_AUDIO_SELECTIONS})...`
+          <div className={styles.searchRow}>
+            <input
+              className={styles.searchInput}
+              type="text"
+              placeholder={atMax
+                ? `Maximum ${MAX_AUDIO_SELECTIONS} selections`
+                : spotifyItems.length > 0
+                  ? "Add another..."
                   : "Search for artists, albums, or tracks..."}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onFocus={() => { if (results.length > 0) setShowDropdown(true); }}
-                aria-label="Search Spotify"
-              />
-              {showDropdown && (
-                <div className={styles.dropdown} role="listbox" data-testid="spotify-dropdown">
-                  {loading && <div className={styles.loading}>Searching...</div>}
-                  {!loading && searched && results.length === 0 && (
-                    <div className={styles.noResults}>No results found</div>
-                  )}
-                  {results.map((item, index) => {
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onFocus={() => { if (results.length > 0) setShowDropdown(true); }}
+              disabled={atMax}
+              aria-label="Search Spotify"
+            />
+            {spotifyItems.length > 0 && (
+              <span className={styles.selectionCounter} data-testid="selection-counter">
+                {spotifyItems.length}/{MAX_AUDIO_SELECTIONS}
+              </span>
+            )}
+          </div>
+
+          {showDropdown && (
+            <div className={styles.dropdown} role="listbox" data-testid="spotify-dropdown">
+              {loading && <div className={styles.loading}>Searching...</div>}
+              {!loading && searched && results.length === 0 && (
+                <div className={styles.noResults}>No results found</div>
+              )}
+              {!loading && groupedResults().map((group) => (
+                <div key={group.type} className={styles.resultGroup}>
+                  <div className={styles.groupHeader}>{group.label}</div>
+                  {group.items.map((item, indexInGroup) => {
+                    const flatIdx = getFlatIndex(group.type, indexInGroup);
                     const selected = isAlreadySelected(item);
                     return (
                       <button
                         key={`${item.spotifyId}-${item.type}`}
                         type="button"
                         role="option"
-                        aria-selected={index === activeIndex}
-                        className={index === activeIndex ? styles.resultItemActive : styles.resultItem}
+                        aria-selected={flatIdx === activeIndex}
+                        className={`${selected ? styles.resultItemSelected : flatIdx === activeIndex ? styles.resultItemActive : styles.resultItem}`}
                         onClick={() => handleSelect(item)}
                         disabled={selected}
-                        style={selected ? { opacity: 0.5 } : undefined}
                       >
                         {item.imageUrl && isValidSpotifyImage(item.imageUrl) ? (
                           <img className={styles.thumbnail} src={item.imageUrl} alt="" />
@@ -254,18 +321,15 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
                             <div className={styles.resultSubtext}>{item.artistName}</div>
                           )}
                         </div>
+                        {selected && <span className={styles.checkmark}>&#10003;</span>}
                         <span className={styles.typeBadge}>{item.type}</span>
                       </button>
                     );
                   })}
-                  <div className={styles.attribution}>Powered by Spotify</div>
                 </div>
-              )}
-            </>
-          )}
-
-          {atMax && (
-            <div className={styles.maxMessage}>Maximum of {MAX_AUDIO_SELECTIONS} selections reached</div>
+              ))}
+              <div className={styles.attribution}>Powered by Spotify</div>
+            </div>
           )}
         </div>
       ) : (
