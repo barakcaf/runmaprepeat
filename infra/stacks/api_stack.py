@@ -78,7 +78,7 @@ class ApiStack(Stack):
             handler="handlers.spotify_search.handler",
             code=_lambda.Code.from_asset("../backend"),
             environment={
-                "ALLOWED_ORIGIN": "https://runmaprepeat.com",
+                "ALLOWED_ORIGIN": self.node.try_get_context("allowed_origin") or "*",
             },
             timeout=Duration.seconds(10),
         )
