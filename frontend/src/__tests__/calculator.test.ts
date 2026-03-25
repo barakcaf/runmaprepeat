@@ -49,6 +49,30 @@ describe("evaluateExpression", () => {
   it("throws error for expressions resulting in Infinity", () => {
     expect(() => evaluateExpression("1/0")).toThrow("Expression did not produce a finite number");
   });
+
+  it("throws error for empty parentheses", () => {
+    expect(() => evaluateExpression("()")).toThrow("Invalid expression");
+  });
+
+  it("throws error for consecutive function-call patterns", () => {
+    expect(() => evaluateExpression("()()")).toThrow("Invalid expression");
+  });
+
+  it("throws error for consecutive operators", () => {
+    expect(() => evaluateExpression("2++3")).toThrow("Invalid expression");
+  });
+
+  it("throws error for trailing operator", () => {
+    expect(() => evaluateExpression("2+")).toThrow("Invalid expression");
+  });
+
+  it("throws error for leading operator (except minus)", () => {
+    expect(() => evaluateExpression("+2")).toThrow("Invalid expression");
+  });
+
+  it("throws error for dot without digits", () => {
+    expect(() => evaluateExpression(".")).toThrow("Invalid expression");
+  });
 });
 
 describe("calculatePaceFromInput", () => {
