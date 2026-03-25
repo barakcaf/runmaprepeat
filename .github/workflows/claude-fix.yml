@@ -23,6 +23,7 @@ jobs:
       contains(github.event.comment.body, '@claude') &&
       (
         github.event.comment.user.login == 'github-actions[bot]' ||
+        github.event.comment.user.login == 'runmaprepeat-autofix[bot]' ||
         github.event.comment.user.type == 'Bot'
       ) &&
       !contains(github.event.issue.labels.*.name, 'no-auto-fix')
