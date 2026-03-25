@@ -8,6 +8,7 @@ import { WeeklyDistanceChart } from "../components/Dashboard/WeeklyDistanceChart
 import { MonthlyDistanceChart } from "../components/Dashboard/MonthlyDistanceChart";
 import { formatDuration, formatPace, formatDate, formatDateTime, formatCalories, formatAudio } from "../utils/format";
 import type { Run } from "../types/run";
+import { normalizeAudio } from "../types/audio";
 import type { WeeklyDistance, MonthlyDistance } from "../types/stats";
 import shared from "../styles/shared.module.css";
 import styles from "../styles/Dashboard.module.css";
@@ -125,10 +126,10 @@ export function Dashboard() {
                 <span>{formatCalories(run.caloriesBurned)}</span>
               )}
             </div>
-            {run.audio && (
+            {normalizeAudio(run.audio).length > 0 && (
               <div className={shared.audioLine}>
                 {"🎵"}{" "}
-                {formatAudio(run.audio)}
+                {formatAudio(normalizeAudio(run.audio)[0])}
               </div>
             )}
           </div>

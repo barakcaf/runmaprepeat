@@ -135,7 +135,7 @@ describe("RunDetailPage view mode", () => {
 });
 
 describe("RunDetailPage audio display", () => {
-  it("shows spotify audio with artwork and Open in Spotify link", async () => {
+  it("shows spotify audio with artwork and Open in Spotify link (legacy single)", async () => {
     const run: Run = {
       ...baseRun,
       audio: {
@@ -164,6 +164,41 @@ describe("RunDetailPage audio display", () => {
 
     const artwork = screen.getByAltText("Levitating");
     expect(artwork).toHaveAttribute("src", "https://i.scdn.co/image/img.jpg");
+  });
+
+  it("shows multiple spotify audio items (array format)", async () => {
+    const run: Run = {
+      ...baseRun,
+      audio: [
+        {
+          source: "spotify",
+          spotifyId: "artist1",
+          type: "artist",
+          name: "Dua Lipa",
+          imageUrl: "https://i.scdn.co/image/dua.jpg",
+          spotifyUrl: "https://open.spotify.com/artist/artist1",
+        },
+        {
+          source: "spotify",
+          spotifyId: "album1",
+          type: "album",
+          name: "Future Nostalgia",
+          artistName: "Dua Lipa",
+          imageUrl: "https://i.scdn.co/image/fn.jpg",
+          spotifyUrl: "https://open.spotify.com/album/album1",
+        },
+      ],
+    };
+    mockGetRun.mockResolvedValue(run);
+
+    renderRunDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText("Future Nostalgia")).toBeInTheDocument();
+    });
+
+    const links = screen.getAllByText("Open in Spotify");
+    expect(links).toHaveLength(2);
   });
 
   it("shows manual audio as plain text", async () => {
@@ -373,7 +408,7 @@ describe("RunDetailPage spotify editing", () => {
     // SpotifySearch chip shows the current audio with remove button
     expect(screen.getByTestId("spotify-chip")).toBeInTheDocument();
     expect(screen.getByText("Dua Lipa")).toBeInTheDocument();
-    expect(screen.getByLabelText("Remove audio")).toBeInTheDocument();
+    expect(screen.getByLabelText("Remove Levitating")).toBeInTheDocument();
   });
 
   it("removes audio when Remove is clicked and saves with null", async () => {
@@ -399,7 +434,7 @@ describe("RunDetailPage spotify editing", () => {
     });
 
     fireEvent.click(screen.getByText("Edit"));
-    fireEvent.click(screen.getByLabelText("Remove audio"));
+    fireEvent.click(screen.getByLabelText("Remove Levitating"));
     fireEvent.click(screen.getByText("Save"));
 
     await waitFor(() => {

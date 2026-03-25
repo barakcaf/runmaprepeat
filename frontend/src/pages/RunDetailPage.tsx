@@ -5,7 +5,8 @@ import { RouteMap } from "../components/Map/RouteMap";
 import { SpotifySearch } from "../components/Spotify/SpotifySearch";
 import { formatDuration, formatPace, formatDateTime, formatCalories, formatAudio } from "../utils/format";
 import type { Run, UpdateRunPayload } from "../types/run";
-import type { AudioRef } from "../types/audio";
+import type { AudioRef, AudioRefs } from "../types/audio";
+import { normalizeAudio } from "../types/audio";
 import shared from "../styles/shared.module.css";
 import styles from "../styles/RunDetailPage.module.css";
 
@@ -40,7 +41,7 @@ export function RunDetailPage() {
   const [editDuration, setEditDuration] = useState("");
   const [editDistance, setEditDistance] = useState("");
   const [editElevation, setEditElevation] = useState("");
-  const [editAudio, setEditAudio] = useState<AudioRef | undefined>(undefined);
+  const [editAudio, setEditAudio] = useState<AudioRefs>([]);
   const [audioRemoved, setAudioRemoved] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -64,7 +65,7 @@ export function RunDetailPage() {
     setEditDuration(data.durationSeconds ? formatDurationInput(data.durationSeconds) : "");
     setEditDistance(data.distanceMeters ? (data.distanceMeters / 1000).toFixed(2) : "");
     setEditElevation(data.elevationGainMeters !== undefined ? String(data.elevationGainMeters) : "");
-    setEditAudio(data.audio);
+    setEditAudio(normalizeAudio(data.audio));
     setAudioRemoved(false);
   }
 
@@ -78,9 +79,9 @@ export function RunDetailPage() {
     setEditing(false);
   }
 
-  function handleAudioChange(audio: AudioRef | undefined) {
+  function handleAudioChange(audio: AudioRefs) {
     setEditAudio(audio);
-    setAudioRemoved(!audio);
+    setAudioRemoved(audio.length === 0);
   }
 
   async function handleSaveEdit() {
@@ -138,7 +139,7 @@ export function RunDetailPage() {
 
       if (audioRemoved) {
         payload.audio = null;
-      } else if (editAudio) {
+      } else if (editAudio.length > 0) {
         payload.audio = editAudio;
       }
 
@@ -325,46 +326,45 @@ export function RunDetailPage() {
               )}
             </div>
 
-            {run.audio && run.audio.source === "spotify" && (
+            {normalizeAudio(run.audio).length > 0 && (
               <div className={styles.section}>
                 <div className={styles.sectionLabel}>Music</div>
-                <div className={styles.spotifyCard}>
-                  {run.audio.imageUrl?.startsWith("https://i.scdn.co/") && (
-                    <img
-                      className={styles.spotifyArt}
-                      src={run.audio.imageUrl}
-                      alt={run.audio.name}
-                    />
-                  )}
-                  <div className={styles.spotifyInfo}>
-                    <div className={styles.spotifyTrack}>{run.audio.name}</div>
-                    {run.audio.artistName && (
-                      <div className={styles.spotifyArtist}>{run.audio.artistName}</div>
-                    )}
-                    {run.audio.albumName && (
-                      <div className={styles.spotifyAlbum}>{run.audio.albumName}</div>
-                    )}
-                    {run.audio.spotifyUrl?.startsWith("https://open.spotify.com/") && (
-                      <a
-                        href={run.audio.spotifyUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={styles.spotifyLink}
-                      >
-                        Open in Spotify
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {run.audio && run.audio.source === "manual" && (
-              <div className={styles.section}>
-                <div className={styles.sectionLabel}>Music</div>
-                <div className={styles.sectionValue}>
-                  {formatAudio(run.audio)}
-                </div>
+                {normalizeAudio(run.audio).map((item, idx) =>
+                  item.source === "spotify" ? (
+                    <div key={idx} className={styles.spotifyCard}>
+                      {item.imageUrl?.startsWith("https://i.scdn.co/") && (
+                        <img
+                          className={styles.spotifyArt}
+                          src={item.imageUrl}
+                          alt={item.name}
+                        />
+                      )}
+                      <div className={styles.spotifyInfo}>
+                        <div className={styles.spotifyTrack}>{item.name}</div>
+                        {item.artistName && (
+                          <div className={styles.spotifyArtist}>{item.artistName}</div>
+                        )}
+                        {item.albumName && (
+                          <div className={styles.spotifyAlbum}>{item.albumName}</div>
+                        )}
+                        {item.spotifyUrl?.startsWith("https://open.spotify.com/") && (
+                          <a
+                            href={item.spotifyUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.spotifyLink}
+                          >
+                            Open in Spotify
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={idx} className={styles.sectionValue}>
+                      {formatAudio(item)}
+                    </div>
+                  )
+                )}
               </div>
             )}
 

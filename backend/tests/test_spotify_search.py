@@ -513,3 +513,58 @@ def test_validate_audio_invalid_artist_name_type() -> None:
     }
     errors = validate_audio(audio)
     assert any("artistName" in e for e in errors)
+
+
+# --- validate_run audio array tests ---
+
+from handlers.utils.validation import validate_run
+
+
+def test_validate_run_audio_array_valid() -> None:
+    body = {
+        "audio": [
+            {
+                "source": "spotify",
+                "spotifyId": "abc",
+                "type": "artist",
+                "name": "Daft Punk",
+                "spotifyUrl": "https://open.spotify.com/artist/abc",
+            },
+            {
+                "source": "spotify",
+                "spotifyId": "def",
+                "type": "album",
+                "name": "RAM",
+                "spotifyUrl": "https://open.spotify.com/album/def",
+            },
+        ]
+    }
+    assert validate_run(body) == []
+
+
+def test_validate_run_audio_array_with_invalid_item() -> None:
+    body = {
+        "audio": [
+            {
+                "source": "spotify",
+                "spotifyId": "abc",
+                "type": "artist",
+                "name": "Daft Punk",
+                "spotifyUrl": "https://open.spotify.com/artist/abc",
+            },
+            {"source": "spotify", "name": "Missing fields"},
+        ]
+    }
+    errors = validate_run(body)
+    assert len(errors) > 0
+    assert any("audio[1]" in e for e in errors)
+
+
+def test_validate_run_audio_single_object_still_works() -> None:
+    body = {
+        "audio": {
+            "source": "manual",
+            "name": "My Playlist",
+        }
+    }
+    assert validate_run(body) == []
