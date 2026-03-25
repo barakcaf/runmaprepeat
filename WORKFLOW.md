@@ -56,6 +56,8 @@
 - ❌ `Trigger Auto-Fix` job failed (not skipped — *failed*). This means HIGH findings exist but auto-fix couldn't run. Treat as a merge blocker.
 - ❌ AI Review flagged HIGH/CRITICAL and no follow-up fix commit addressed them
 - ❌ Any required CI job failed (even if `continue-on-error` made the workflow green)
+- ❌ **NEVER use `--admin` to bypass merge gates** — if the PR can't merge normally, fix the issue first
+- ❌ **NEVER rationalize HIGH/CRITICAL findings as "false positives" to justify merging** — if you believe it's a false positive, add the `no-auto-fix` label and document why in a PR comment, but still fix or explicitly acknowledge the finding before merging
 
 **How to check before merging:**
 ```bash

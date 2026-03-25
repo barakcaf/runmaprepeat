@@ -60,6 +60,8 @@ infra/        AWS CDK (Python)
 - **NEVER merge a PR where `Trigger Auto-Fix` job has `conclusion: failure`** — this means the auto-fix pipeline is broken and HIGH/CRITICAL findings were not addressed
 - **NEVER merge a PR with unresolved HIGH or CRITICAL AI review findings** — read the review comment, not just the green checkmark
 - **ALL CI jobs must be `success` or legitimately `skipped`** — `failure` on any job is a merge blocker, even if the overall workflow appears green
+- **NEVER use `gh pr merge --admin`** — if the PR can't merge normally, fix the blocker first
+- **NEVER dismiss HIGH/CRITICAL as "false positive" to justify merging** — if it's truly a false positive, document it in a PR comment and add the `no-auto-fix` label, but still get the finding resolved or explicitly acknowledged
 - When in doubt: `gh pr view <PR#> --json statusCheckRollup,reviews` and read the actual findings
 
 ## Deployment Rules
