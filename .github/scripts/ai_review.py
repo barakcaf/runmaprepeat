@@ -22,6 +22,7 @@ import re
 import sys
 import urllib.request
 import urllib.error
+import uuid
 from pathlib import Path
 
 import boto3
@@ -702,6 +703,23 @@ def main() -> None:
         or severity_counts.get("HIGH", 0) > 0
         or still_open_count > 0
     )
+
+    # 10a. Write GitHub Actions outputs for downstream jobs (e.g., fix agent)
+    gh_output = os.environ.get("GITHUB_OUTPUT")
+    if gh_output:
+        findings_summary = "\n".join(
+            f"- [{f.get('severity', 'LOW')}] {f.get('file', '?')}:{f.get('line', '?')} — "
+            f"{f.get('title', '')}: {f.get('body', '')[:200]}"
+            for f in findings
+        )
+        with open(gh_output, "a") as fh:
+            fh.write(f"has_findings={'true' if has_blockers else 'false'}\n")
+            # Multi-line outputs use delimiter syntax — unique per output
+            delim1 = f"ghadelim_{uuid.uuid4().hex[:8]}"
+            delim2 = f"ghadelim_{uuid.uuid4().hex[:8]}"
+            fh.write(f"findings_json<<{delim1}\n{json.dumps(findings)}\n{delim1}\n")
+            fh.write(f"findings_summary<<{delim2}\n{findings_summary}\n{delim2}\n")
+        log.info("Wrote GitHub Actions outputs: has_findings=%s", has_blockers)
 
     if not has_blockers:
         review_body += "---\n\n## ✅ Ready for Merge\n\n"
