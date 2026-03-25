@@ -173,6 +173,23 @@
   margin-top: 1.5rem;
 }
 
+/* Date + Time side by side */
+.dateTimeRow {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.dateTimeRow > * {
+  flex: 1;
+}
+
+@media (max-width: 480px) {
+  .dateTimeRow {
+    flex-direction: column;
+    gap: 0;
+  }
+}
+
 /* Edit form */
 .editForm {
   margin-top: 0.5rem;
