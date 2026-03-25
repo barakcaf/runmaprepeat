@@ -276,7 +276,7 @@ describe("SpotifySearch multi-select", () => {
     expect(chips[1].textContent).toContain("Future Nostalgia");
   });
 
-  it("shows max message when 3 items selected", () => {
+  it("disables search input when 3 items selected", () => {
     render(
       <SpotifySearch
         value={[sampleResults[0], sampleResults[1], sampleResults[2]]}
@@ -284,8 +284,9 @@ describe("SpotifySearch multi-select", () => {
       />
     );
 
-    expect(screen.getByText(`Maximum of ${MAX_AUDIO_SELECTIONS} selections reached`)).toBeInTheDocument();
-    expect(screen.queryByLabelText("Search Spotify")).not.toBeInTheDocument();
+    const input = screen.getByLabelText("Search Spotify");
+    expect(input).toBeDisabled();
+    expect(input).toHaveAttribute("placeholder", `Maximum ${MAX_AUDIO_SELECTIONS} selections`);
   });
 
   it("does not allow selecting duplicate items", async () => {
@@ -340,7 +341,7 @@ describe("SpotifySearch multi-select", () => {
     expect(onChange).toHaveBeenCalledWith([sampleResults[0], sampleResults[1]]);
   });
 
-  it("shows updated placeholder text when items are selected", () => {
+  it("shows selection counter when items are selected", () => {
     render(
       <SpotifySearch
         value={[sampleResults[0]]}
@@ -348,8 +349,123 @@ describe("SpotifySearch multi-select", () => {
       />
     );
 
-    const input = screen.getByLabelText("Search Spotify");
-    expect(input).toHaveAttribute("placeholder", "Add another (1/3)...");
+    const counter = screen.getByTestId("selection-counter");
+    expect(counter.textContent).toBe(`1/${MAX_AUDIO_SELECTIONS}`);
+  });
+
+  it("does not clear query after selecting an item", async () => {
+    mockSearchSpotify.mockResolvedValue({
+      artists: [sampleResults[0]],
+      albums: [sampleResults[1]],
+      tracks: [],
+    });
+    const onChange = vi.fn();
+
+    render(<SpotifySearch value={[]} onChange={onChange} />);
+    await typeAndSearch("Dua");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("spotify-dropdown")).toBeInTheDocument();
+    });
+
+    const input = screen.getByLabelText("Search Spotify") as HTMLInputElement;
+    const options = screen.getAllByRole("option");
+    fireEvent.click(options[0]);
+
+    // Query should still be present
+    expect(input.value).toBe("Dua");
+  });
+
+  it("groups results by type with section headers", async () => {
+    mockSearchSpotify.mockResolvedValue({
+      artists: [sampleResults[0]],
+      albums: [sampleResults[1]],
+      tracks: [sampleResults[2]],
+    });
+
+    render(<SpotifySearch value={[]} onChange={vi.fn()} />);
+    await typeAndSearch("Dua");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("spotify-dropdown")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Artists")).toBeInTheDocument();
+    expect(screen.getByText("Albums")).toBeInTheDocument();
+    expect(screen.getByText("Tracks")).toBeInTheDocument();
+  });
+
+  it("shows checkmark on already-selected items in dropdown", async () => {
+    mockSearchSpotify.mockResolvedValue({
+      artists: [sampleResults[0]],
+      albums: [sampleResults[1]],
+      tracks: [],
+    });
+
+    render(
+      <SpotifySearch value={[sampleResults[0]]} onChange={vi.fn()} />
+    );
+    await typeAndSearch("Dua");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("spotify-dropdown")).toBeInTheDocument();
+    });
+
+    // The selected item should show a checkmark
+    expect(screen.getByText("\u2713")).toBeInTheDocument();
+  });
+
+  it("shows clear all button with 2+ selections", () => {
+    render(
+      <SpotifySearch
+        value={[sampleResults[0], sampleResults[1]]}
+        onChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("clear-all")).toBeInTheDocument();
+    expect(screen.getByText("Clear all")).toBeInTheDocument();
+  });
+
+  it("does not show clear all button with only 1 selection", () => {
+    render(
+      <SpotifySearch
+        value={[sampleResults[0]]}
+        onChange={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByTestId("clear-all")).not.toBeInTheDocument();
+  });
+
+  it("clears all selections when clear all is clicked", () => {
+    const onChange = vi.fn();
+    render(
+      <SpotifySearch
+        value={[sampleResults[0], sampleResults[1]]}
+        onChange={onChange}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("clear-all"));
+    expect(onChange).toHaveBeenCalledWith([]);
+  });
+
+  it("shows Powered by Spotify attribution in dropdown", async () => {
+    mockSearchSpotify.mockResolvedValue({
+      artists: [sampleResults[0]],
+      albums: [],
+      tracks: [],
+    });
+
+    render(<SpotifySearch value={[]} onChange={vi.fn()} />);
+    await typeAndSearch("Dua");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("spotify-dropdown")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Powered by Spotify")).toBeInTheDocument();
   });
 });
 
