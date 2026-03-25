@@ -2,16 +2,16 @@
 
 **Issue:** [#57](https://github.com/barakcaf/runmaprepeat/issues/57)
 **Author:** Loki (AI assistant)
-**Date:** 2026-03-24
-**Status:** Draft
+**Date:** 2026-03-25
+**Status:** Implemented
 
 ---
 
 ## Executive Summary
 
-An automated AI code review bot that runs on every PR via GitHub Actions. It calls Claude Sonnet on Amazon Bedrock to review the diff, then posts inline comments and a summary directly on the PR — following the same structured review flow proven on PRs #64/#65 (Spotify integration).
+An automated AI code review agent that runs on every PR via GitHub Actions. It uses Claude Opus 4.6 on Amazon Bedrock to review diffs, post inline comments, auto-resolve previously-fixed issues, and signal when a PR is ready for merge.
 
-The bot is fully automated: PR open/update triggers the workflow, Bedrock performs the review, results are posted as GitHub PR review comments. No human or assistant in the loop.
+The agent is fully automated and gated behind tests — it only reviews code that passes all test suites. No human or assistant in the loop.
 
 ---
 
@@ -20,26 +20,54 @@ The bot is fully automated: PR open/update triggers the workflow, Bedrock perfor
 ### 1.1 End-to-End Flow
 
 ```
-PR opened / updated (push to PR branch)
-    │
-    ▼
-GitHub Actions workflow triggers
-    │
-    ▼
-Review script (.github/scripts/ai_review.py)
-    │
-    ├── 1. Fetch PR metadata (title, description, author)
-    ├── 2. Fetch changed files + full file content via GitHub API
-    ├── 3. Filter files (skip *.md, *.json, cdk.out/, node_modules/)
-    ├── 4. Build structured prompt (project context + review categories + diff)
-    ├── 5. Call Amazon Bedrock (Claude Sonnet) via ConverseAPI
-    ├── 6. Parse structured response into findings
-    │
-    ▼
-Post review via GitHub API (pulls/reviews endpoint)
-    ├── Review body: summary + highlights + finding counts
-    ├── Inline comments: one per finding (severity + explanation + fix suggestion)
-    └── Event type: COMMENT (bot cannot approve/block)
+PR opened / push / reopened
+         │
+         ▼
+┌─────────────────────┐
+│  Job 1: Run Tests   │
+│  (frontend/backend/ │
+│   CDK + Telegram)   │
+└─────────┬───────────┘
+          │
+     Tests pass?
+      │       │
+      No      Yes
+      │       │
+      ▼       ▼
+   ❌ Stop  ┌──────────────────────────────┐
+            │  Job 2: AI Code Review       │
+            │  (needs: test)               │
+            │                              │
+            │  1. Resolve old comments     │
+            │     • Fetch unresolved bot   │
+            │       threads (GraphQL)      │
+            │     • Get current file code  │
+            │     • Ask Opus: "is this     │
+            │       fixed?"                │
+            │     • Auto-resolve fixed     │
+            │       threads                │
+            │                              │
+            │  2. Fresh code review        │
+            │     • Fetch diff + full      │
+            │       files via GitHub API   │
+            │     • Send to Opus 4.6 with  │
+            │       project context        │
+            │     • Parse JSON findings    │
+            │     • Post inline comments   │
+            │       (CRITICAL/HIGH/MED)    │
+            │     • Post summary review    │
+            │                              │
+            │  3. Merge decision           │
+            │     • No new CRITICAL/HIGH   │
+            │       AND no unresolved      │
+            │       threads                │
+            │     → "✅ Ready for Merge"   │
+            │                              │
+            │  4. Telegram notification    │
+            │     • Severity counts        │
+            │     • Resolution count       │
+            │     • Ready status           │
+            └──────────────────────────────┘
 ```
 
 ### 1.2 Sequence Diagram
@@ -51,24 +79,50 @@ sequenceDiagram
     participant S as Review Script
     participant BR as Amazon Bedrock
     participant API as GitHub API
+    participant TG as Telegram
 
-    GH->>GA: pull_request event (opened/synchronize)
-    GA->>S: Run ai_review.py
-    S->>API: GET /repos/{repo}/pulls/{pr}/files
-    API-->>S: Changed files + patches
-    S->>API: GET /repos/{repo}/contents/{path} (per file)
-    API-->>S: Full file content
-    S->>S: Filter files, build prompt
-    S->>BR: Converse (Claude Sonnet) with structured prompt
-    BR-->>S: Review findings (JSON)
-    S->>S: Parse findings → inline comments
-    S->>API: POST /repos/{repo}/pulls/{pr}/reviews
-    API-->>GH: Review with inline comments appears on PR
+    GH->>GA: pull_request event
+    GA->>GA: Job 1: Run tests (frontend/backend/CDK)
+    GA-->>TG: Test results notification
+    
+    alt Tests fail
+        GA->>GH: ❌ Workflow fails, no review
+    else Tests pass
+        GA->>S: Job 2: Run ai_review.py
+        
+        Note over S,API: Step 1: Resolve old comments
+        S->>API: GraphQL: fetch unresolved bot threads
+        API-->>S: Unresolved threads + comments
+        S->>API: GET /repos/{repo}/contents/{path} (referenced files)
+        API-->>S: Current file content
+        S->>BR: Converse (Opus 4.6): "Are these issues fixed?"
+        BR-->>S: Resolution decisions (JSON)
+        S->>API: GraphQL: resolveReviewThread (for fixed ones)
+        
+        Note over S,API: Step 2: Fresh review
+        S->>API: GET /repos/{repo}/pulls/{pr}/files
+        API-->>S: Changed files + patches
+        S->>API: GET /repos/{repo}/contents/{path} (per file)
+        API-->>S: Full file content
+        S->>BR: Converse (Opus 4.6): Review prompt + diff + context
+        BR-->>S: Review findings (JSON)
+        
+        Note over S,API: Step 3: Post review + merge signal
+        S->>API: POST /repos/{repo}/pulls/{pr}/reviews
+        API-->>GH: Review with inline comments + summary
+        S-->>TG: Severity counts + resolution + ready status
+    end
 ```
 
 ### 1.3 Re-Review on Push
 
-When new commits are pushed to a PR branch, the workflow triggers again (`synchronize` event). The script reviews only the files changed in the latest push, avoiding duplicate comments on already-reviewed code. Previous bot reviews are not deleted — they remain as a history of what was flagged.
+When new commits are pushed to a PR branch, the workflow triggers again (`synchronize` event):
+
+1. **Old comments are checked** — the agent fetches all unresolved threads it previously posted, gets the current file content, and asks Opus if each issue has been fixed. Fixed threads are auto-resolved via GraphQL.
+2. **Fresh review runs** on the current diff — new findings are posted as new inline comments.
+3. **Ready for Merge** is evaluated — if no CRITICAL/HIGH findings remain (new or old), the signal is posted.
+
+This creates a natural feedback loop: push → review → fix → push → old issues resolved + new review → Ready for Merge.
 
 ---
 
@@ -76,41 +130,51 @@ When new commits are pushed to a PR branch, the workflow triggers again (`synchr
 
 The review prompt instructs the model to check each file against these categories:
 
-| Category | What to check |
-|----------|---------------|
-| **Security** | Credential handling, input validation, CORS, XSS, open redirects, IAM permissions, public resources |
-| **Error handling** | Missing try/catch, unhandled edge cases, error propagation, missing validation |
-| **Code quality** | Typing, naming, DRY, structure, dead code, copy-paste artifacts |
-| **AWS best practices** | Lambda patterns (cold start, timeout, memory), IAM scope, CDK constructs, DynamoDB pagination |
-| **Test coverage** | Missing test cases, untested edge cases, test quality |
-| **Performance** | Unnecessary re-renders (React), bundle size, redundant API calls, memory leaks |
-| **Compliance** | Third-party ToS (e.g., Spotify branding), accessibility (ARIA), licensing |
+| # | Category | Focus |
+|---|----------|-------|
+| 1 | **Security** | Input validation, credential handling, CORS, XSS, IAM scope, public resources, injection |
+| 2 | **Bugs & Error Handling** | Logic errors, missing try/catch, unhandled edge cases, wrong types, off-by-one |
+| 3 | **AWS Best Practices** | Lambda timeout/memory, IAM least-privilege, DynamoDB pagination (1MB limit), CDK construct patterns |
+| 4 | **Code Quality** | Typing, DRY violations, dead code, copy-paste artifacts, unclear logic |
+| 5 | **Test Coverage** | Missing test cases for new/changed behavior, untested error paths |
+| 6 | **Performance** | Unnecessary re-renders (React), missing useCallback/useMemo, redundant API calls, bundle size |
+| 7 | **Data Integrity** | DynamoDB key schema violations, missing validation, decimal/float handling |
 
 The prompt explicitly excludes: formatting, import order, trivial naming preferences, and "add a comment" suggestions.
 
+### PR Type Awareness
+
+The agent adjusts focus based on the PR type:
+- **New feature:** Security, error handling, test coverage, edge cases
+- **Bug fix:** Root cause verification, regression risk
+- **Refactor:** Behavior preservation — flag accidental behavior changes
+- **Dependency/config:** Breaking changes, version compatibility
+- **Docs/CI:** Minimal — only factual errors or broken configs
+
 ---
 
-## 3. Severity Levels
+## 3. Severity Levels & Merge Signal
 
-Each finding is assigned a severity level that maps to a required action:
+| Level | Emoji | Meaning | Blocks Merge? |
+|-------|-------|---------|---------------|
+| CRITICAL | 🔴 | Security vulnerability or data loss | **Yes** |
+| HIGH | 🟠 | Bug or significant gap | **Yes** |
+| MEDIUM | 🟡 | Quality issue or minor bug | No |
+| LOW | 🟢 | Improvement opportunity | No |
 
-| Level | Emoji | Meaning | Action |
-|-------|-------|---------|--------|
-| CRITICAL | 🔴 | Security vulnerability or data loss risk | Must fix before merge |
-| HIGH | 🟠 | Bug, missing error handling, or security hardening gap | Must fix before merge |
-| MEDIUM | 🟡 | Code quality, minor bugs, missing validation, UX issues | Should fix (can be follow-up) |
-| LOW | 🟢 | Style, minor improvements, optional optimizations | Nice to have |
-| NIT | 📝 | Trivial observations | Ignore or fix opportunistically |
+### Ready for Merge
 
-The bot only posts **CRITICAL**, **HIGH**, and **MEDIUM** findings as inline comments by default. LOW and NIT findings are included in the summary comment only, to reduce noise.
+The agent posts **"✅ Ready for Merge"** when ALL of:
+- Zero new CRITICAL or HIGH findings
+- Zero unresolved previous bot threads
+
+This is the signal that the PR can be merged. Human approval is still required (the bot only posts `COMMENT`, never `APPROVE`).
 
 ---
 
 ## 4. Comment Format
 
-### 4.1 Inline Comments
-
-Each inline comment on a specific line follows this format:
+### 4.1 Inline Comments (CRITICAL/HIGH/MEDIUM)
 
 ```
 🟠 **HIGH: Short description**
@@ -118,43 +182,35 @@ Each inline comment on a specific line follows this format:
 Explanation of the issue with context on why it matters.
 
 **Fix:**
-```python
-# Suggested code change
-```
-```
-
-When the fix is a simple replacement, use GitHub's suggested changes format for one-click apply:
-
-````
-🟡 **MEDIUM: No query length limit**
-
-Any-length query gets forwarded directly to the API.
-
 ```suggestion
-if len(query) > 256:
-    return {"statusCode": 400, "body": json.dumps({"error": "Query too long"})}
+# GitHub one-click apply suggestion
 ```
-````
+```
 
 ### 4.2 Review Body
 
-The review body (top-level comment) includes:
-
 ```markdown
-## AI Code Review — PR #64: {title}
+## 🤖 AI Code Review — #64: {title}
 
-{1-2 sentence summary of what the PR does and overall assessment}
+*Type: feature*
+
+{1-2 sentence summary and overall assessment}
 
 ### 🟢 Highlights
-- {What's done well — 2-4 bullet points}
+- {What's done well}
 
-### Findings: {N} HIGH, {N} MEDIUM, {N} LOW
+### 🔄 Previous Comments
+- ✅ **3** comment(s) auto-resolved (fixed by this push)
+- ⏳ **1** comment(s) still unresolved
+
+### Findings: 1 🟠 HIGH, 2 🟡 MEDIUM
 See inline comments for details.
 
-{If any LOW/NIT findings not posted inline:}
-### Low Priority
-- **L1:** {description} — `{filename}:{line}`
-- **N1:** {description} — `{filename}:{line}`
+---
+
+## ✅ Ready for Merge
+
+No unresolved CRITICAL/HIGH findings. This PR is ready for human approval.
 ```
 
 ---
@@ -165,10 +221,10 @@ See inline comments for details.
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| GitHub Actions workflow | `.github/workflows/ai-review.yml` | Triggers on PR events, authenticates to AWS via OIDC |
-| Review script | `.github/scripts/ai_review.py` | Fetches diff, builds prompt, calls Bedrock, posts review |
+| Workflow | `.github/workflows/pr-review.yml` | Two-job workflow: tests → AI review |
+| Review script | `.github/scripts/ai_review.py` | Fetches diff, resolves old comments, calls Bedrock, posts review |
 | Prompt template | `.github/prompts/review.md` | Editable prompt with project context and review rules |
-| IAM role | `github-actions-ai-review` | OIDC-federated role with `bedrock:InvokeModel` only |
+| IAM role | `github-actions-ai-review` | OIDC-federated role for Bedrock access |
 
 ### 5.2 Auth: GitHub → AWS (OIDC Federation)
 
@@ -181,7 +237,7 @@ GitHub Actions (OIDC provider)
 AWS IAM (trust policy: token.actions.githubusercontent.com)
     │
     ▼ (temporary credentials)
-Amazon Bedrock (InvokeModel — Claude Sonnet)
+Amazon Bedrock (Converse — Claude Opus 4.6)
 ```
 
 IAM role trust policy restricts to the specific repo:
@@ -195,19 +251,31 @@ IAM role trust policy restricts to the specific repo:
 }
 ```
 
-IAM permissions — minimal scope:
+IAM permissions:
 ```json
 {
   "Effect": "Allow",
-  "Action": ["bedrock:InvokeModel"],
-  "Resource": ["arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-*"]
+  "Action": [
+    "bedrock:InvokeModel",
+    "bedrock:InvokeModelWithResponseStream",
+    "bedrock:Converse",
+    "bedrock:ConverseStream"
+  ],
+  "Resource": [
+    "arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
+    "arn:aws:bedrock:*:<account>:inference-profile/*"
+  ]
 }
 ```
 
-### 5.3 Workflow File: `.github/workflows/ai-review.yml`
+The role ARN is stored as GitHub secret `AWS_OIDC_ROLE_ARN` — never hardcoded in workflow files.
+
+### 5.3 Workflow: `.github/workflows/pr-review.yml`
+
+Single workflow file with two jobs:
 
 ```yaml
-name: AI Code Review
+name: PR Tests & Review
 
 on:
   pull_request:
@@ -216,189 +284,100 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  id-token: write  # OIDC federation
+  checks: write
+  id-token: write
 
 jobs:
+  test:
+    name: Run Tests
+    # Runs frontend (Vitest), backend (pytest), CDK (pytest)
+    # Posts test results table on PR
+    # Sends Telegram notification
+    # Fails if any suite fails
+
   review:
+    name: AI Code Review
+    needs: test          # ← Only runs if ALL tests pass
     runs-on: ubuntu-latest
     if: github.actor != 'dependabot[bot]'
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-ai-review
-          aws-region: us-east-1
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: pip install boto3 PyGithub
-
-      - name: Run AI review
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO_NAME: ${{ github.repository }}
-        run: python .github/scripts/ai_review.py
+      - Checkout
+      - Configure AWS credentials (OIDC)
+      - Set up Python 3.12
+      - pip install boto3
+      - Run ai_review.py
 ```
 
-### 5.4 Prompt Template: `.github/prompts/review.md`
+### 5.4 GitHub API Usage
 
-```markdown
-You are a senior developer reviewing a pull request for RunMapRepeat,
-a personal exercise tracker app.
+| API | Method | Purpose |
+|-----|--------|---------|
+| `GET /repos/{repo}/pulls/{pr}` | REST | PR metadata (title, author, SHA) |
+| `GET /repos/{repo}/pulls/{pr}/files` | REST (paginated) | Changed files + patches |
+| `GET /repos/{repo}/contents/{path}` | REST | Full file content at HEAD |
+| `POST /repos/{repo}/pulls/{pr}/reviews` | REST | Post review with inline comments |
+| `pullRequest.reviewThreads` | GraphQL | Fetch unresolved bot threads |
+| `resolveReviewThread` | GraphQL mutation | Auto-resolve fixed threads |
 
-## Tech Stack
-- Frontend: React 18 + Vite + TypeScript (CSS Modules)
-- Backend: AWS Lambda (Python 3.12, stdlib only — no external deps)
-- Infrastructure: AWS CDK (Python)
-- CI/CD: AWS CodeBuild + CodePipeline
-- Auth: Amazon Cognito
-- Database: DynamoDB (single-table)
+### 5.5 Bedrock Usage
 
-## Review Categories
-Check each changed file against these categories:
-1. Security — credentials, input validation, CORS, XSS, IAM
-2. Error handling — missing try/catch, unhandled edge cases
-3. Code quality — typing, naming, DRY, dead code
-4. AWS best practices — Lambda cold start, IAM scope, DynamoDB pagination
-5. Test coverage — missing tests, untested edge cases
-6. Performance — re-renders, bundle size, memory
-7. Compliance — third-party ToS, accessibility
-
-## Rules
-- Assign severity: CRITICAL, HIGH, MEDIUM, LOW, or NIT
-- Only report actual issues — no praise-only comments
-- DO NOT comment on: formatting, import order, naming preferences, adding comments
-- Include a concrete fix suggestion for each finding
-- For simple fixes, use GitHub suggested changes format
-
-## Output Format (JSON)
-Respond with valid JSON only:
-{
-  "summary": "1-2 sentence overview",
-  "highlights": ["what's done well"],
-  "findings": [
-    {
-      "severity": "HIGH",
-      "file": "backend/data/spotify.py",
-      "line": 75,
-      "title": "No error handling for token exchange",
-      "body": "Explanation...",
-      "suggestion": "optional code suggestion"
-    }
-  ]
-}
-```
-
-### 5.5 Review Script: `.github/scripts/ai_review.py`
-
-High-level pseudocode:
-
-```python
-def main():
-    # 1. Fetch PR data
-    pr = github.get_pr(repo, pr_number)
-    files = pr.get_files()
-
-    # 2. Filter
-    files = [f for f in files if not should_skip(f.filename)]
-
-    # 3. Build prompt
-    prompt = load_template(".github/prompts/review.md")
-    for f in files:
-        prompt += f"\n### {f.filename}\n```diff\n{f.patch}\n```\n"
-        prompt += f"Full file:\n```\n{get_file_content(f.filename)}\n```\n"
-
-    # 4. Call Bedrock
-    response = bedrock.converse(
-        modelId="anthropic.claude-sonnet-4-20250514-v1:0",
-        messages=[{"role": "user", "content": prompt}],
-    )
-    findings = json.loads(response)
-
-    # 5. Post review
-    comments = []
-    for f in findings["findings"]:
-        if f["severity"] in ("CRITICAL", "HIGH", "MEDIUM"):
-            comments.append({
-                "path": f["file"],
-                "line": f["line"],
-                "body": format_comment(f),
-            })
-
-    pr.create_review(
-        body=format_summary(findings),
-        event="COMMENT",
-        comments=comments,
-    )
-
-def format_comment(finding):
-    emoji = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡"}[finding["severity"]]
-    body = f'{emoji} **{finding["severity"]}: {finding["title"]}**\n\n{finding["body"]}'
-    if finding.get("suggestion"):
-        body += f'\n\n**Fix:**\n```suggestion\n{finding["suggestion"]}\n```'
-    return body
-
-def should_skip(filename):
-    skip_patterns = [".md", ".json", "cdk.out/", "node_modules/", "__pycache__/"]
-    return any(filename.endswith(p) or p in filename for p in skip_patterns)
-```
+- **Model:** `us.anthropic.claude-opus-4-6-v1` (cross-region inference profile)
+- **API:** `Converse` (not `InvokeModel`)
+- **Region:** us-east-1
+- **Temperature:** 0.2 (deterministic, consistent reviews)
+- **Max output tokens:** 4096
+- **Two LLM calls per review:**
+  1. Resolution check (if unresolved threads exist): "Are these issues fixed?"
+  2. Code review: Full diff + context → structured findings
 
 ---
 
-## 6. Design Decisions
+## 6. Safety & Guardrails
+
+| Guardrail | Implementation |
+|-----------|---------------|
+| **Tests gate review** | `needs: test` — review job is skipped if any test fails |
+| **Large PR bailout** | Max 15 files / 1500 changed lines — posts helpful message |
+| **No merge blocking** | Posts `COMMENT` only — never `APPROVE` or `REQUEST_CHANGES` |
+| **Confidence threshold** | 70% — don't flag speculative issues |
+| **Max 10 findings** | Prioritized by severity, reduces comment fatigue |
+| **File filtering** | Skips cdk.out/, node_modules/, images, lock files, .map files |
+| **Diff scope only** | Don't flag pre-existing issues in unchanged code |
+| **Fallback posting** | If inline comments fail (position mapping), retries as summary-only |
+| **Robust JSON parsing** | Regex extraction → brace matching → multiple fallbacks |
+| **Env var validation** | Fails fast with clear error if GITHUB_TOKEN/REPO_NAME/PR_NUMBER missing |
+| **Error logging** | All GitHub API errors logged with status + response body |
+| **Conservative resolution** | Only auto-resolves when Opus is confident the fix is correct |
+
+---
+
+## 7. Design Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| LLM | Claude Sonnet 4 via Bedrock | Best reasoning for code review, already in AWS account, cost-effective |
-| Trigger | GitHub Actions `pull_request` event | Zero infra, automatic, no webhook/Lambda needed |
-| Auth to Bedrock | OIDC federation (GitHub → AWS IAM Role) | No long-lived secrets, industry best practice |
-| Comment style | Inline comments + summary | Line-specific feedback + overview — matches proven PR #64/#65 format |
-| Review scope | Changed files only, with full file context | Balance between context and token cost |
-| Noise control | Severity filtering (inline = HIGH+, summary = all) | Reduce comment fatigue while preserving visibility |
-| File filtering | Skip non-code files | Don't waste tokens on generated/config files |
-| Output format | JSON from LLM → parsed by script | Reliable parsing, easy to map to GitHub API |
-| Re-review | On push (synchronize event) | Incremental, catches fixes and regressions |
-| Review event | COMMENT (not APPROVE/REQUEST_CHANGES) | Bot should never block — human approval required |
-
----
-
-## 7. Implementation Plan
-
-| Phase | Tasks | Effort |
-|-------|-------|--------|
-| **1: MVP** | IAM OIDC role, `ai_review.py` script, workflow file, prompt template, test on real PR | 2-3 hours |
-| **2: Refinement** | File filtering, large PR chunking, prompt as separate file, token usage logging | 1-2 hours |
-| **3: Polish** | `/review` slash command, severity filtering config, `.github/review-rules.yml` | 1 hour |
-
-### Phase 1 Checklist
-- [ ] Create IAM role `github-actions-ai-review` with OIDC trust + `bedrock:InvokeModel`
-- [ ] Store AWS account ID as GitHub repo secret
-- [ ] Write `.github/scripts/ai_review.py` (~200 lines)
-- [ ] Write `.github/prompts/review.md` (prompt template)
-- [ ] Add `.github/workflows/ai-review.yml`
-- [ ] Test on a real PR and tune prompt based on output quality
+| LLM | Claude Opus 4.6 via Bedrock | Best reasoning for code review, highest accuracy on complex issues |
+| Test gate | `needs: test` in same workflow | Simple, reliable — no cross-workflow trigger complexity |
+| Auth | OIDC federation (GitHub → AWS IAM) | No long-lived secrets, industry best practice |
+| Comment resolution | GraphQL + LLM check | Closes the feedback loop — old comments don't pile up |
+| Merge signal | "✅ Ready for Merge" comment | Clear signal, no bot approvals, human still decides |
+| Single workflow | Tests + review in `pr-review.yml` | `workflow_run` only works from default branch — single file is simpler |
+| Comment style | Inline (HIGH+) + summary | Line-specific feedback + overview |
+| Output format | JSON from LLM → script parses | Reliable, easy to map to GitHub API |
+| Review event | `COMMENT` (never APPROVE) | Bot should never block — human approval required |
+| Telegram | Direct HTTP from script | No extra infrastructure, optional (skipped if not configured) |
 
 ---
 
 ## 8. Cost Estimate
 
-For ~5-10 PRs/week, averaging 500 lines changed per PR:
+Using Opus 4.6 for ~5-10 PRs/week, averaging 500 lines changed per PR:
 
 | Component | Estimate |
 |-----------|----------|
-| Bedrock Claude Sonnet input tokens | ~5K tokens/PR × 10 PRs = 50K tokens/week |
-| Bedrock Claude Sonnet output tokens | ~2K tokens/PR × 10 PRs = 20K tokens/week |
-| Monthly cost | **< $1/month** |
-| GitHub Actions minutes | Free tier (2,000 min/month for private repos) |
+| Bedrock Opus input tokens | ~8K tokens/PR × 2 calls × 10 PRs = 160K tokens/week |
+| Bedrock Opus output tokens | ~3K tokens/PR × 2 calls × 10 PRs = 60K tokens/week |
+| Monthly cost | **~$15-25/month** (Opus pricing) |
+| GitHub Actions minutes | Free tier (2,000 min/month for public repos) |
 
 ---
 
@@ -406,75 +385,27 @@ For ~5-10 PRs/week, averaging 500 lines changed per PR:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| **False positives / noise** | High | Medium | Strict prompt rules (no formatting nits), severity filtering, start conservative and tune |
-| **Hallucinated suggestions** | Medium | Medium | Always include full file context (not just diff), human reviewer has final say |
-| **Context window overflow** | Low | Low | File chunking for large PRs, skip non-code files |
-| **Bedrock rate limits** | Low | Low | Single PR at a time, exponential backoff |
-| **Cost runaway** | Very Low | Low | Hard token limit in script, budget alert on AWS account |
-| **Over-reliance on AI review** | Low | High | Bot posts COMMENT only, never APPROVE — human approval still required |
-| **Prompt injection via PR content** | Low | Medium | Sanitize PR description, review-only permissions |
-| **Stale prompts** | Medium | Low | Keep prompt template in repo, update as conventions evolve |
+| **False positives / noise** | Medium | Medium | 70% confidence threshold, severity filtering, max 10 findings |
+| **Hallucinated suggestions** | Low | Medium | Full file context (not just diff), human reviewer has final say |
+| **Auto-resolve wrong** | Low | Medium | Conservative resolution — only when Opus is confident |
+| **Context window overflow** | Low | Low | 15 file / 1500 line limit with helpful bailout message |
+| **Bedrock rate limits** | Low | Low | Single PR at a time, sequential API calls |
+| **Cost with Opus** | Medium | Low | ~$20/month for typical usage, budget alerts on AWS account |
+| **Over-reliance** | Low | High | Bot never approves — human approval required for merge |
+| **GraphQL permission** | Low | Low | GITHUB_TOKEN has pull-requests:write which covers thread resolution |
 
 ---
 
 ## 10. Alternatives Considered
 
-### Option A: GitHub Copilot Code Review (Built-in)
-- **Pros**: Zero setup, native UX
-- **Cons**: Copilot subscription, limited customization (4K chars), can't use Bedrock
-- **Verdict**: Less tailored, costs money
+| Option | Pros | Cons | Verdict |
+|--------|------|------|---------|
+| GitHub Copilot Review | Zero setup, native UX | Subscription, limited customization, no Bedrock | Less tailored |
+| CodeRabbit SaaS | Best-in-class quality | External SaaS, data leaves repo, paid | Overkill for personal project |
+| Sonnet instead of Opus | Cheaper (~$1/month) | Lower accuracy on complex issues | Opus chosen for quality |
+| Separate workflow file | Cleaner separation | `workflow_run` doesn't work from PR branches | Merged into single file |
+| Lambda + webhook | More control | Unnecessary infrastructure for this use case | GitHub Actions is simpler |
 
-### Option B: CodeRabbit SaaS
-- **Pros**: Best-in-class quality, learns from feedback
-- **Cons**: External SaaS, data leaves repo, paid for private repos
-- **Verdict**: Overkill for a personal project
+**Selected: Custom script + Opus 4.6 + single-workflow gate**
 
-### Option C: Fork `ai-pr-reviewer` + Bedrock support
-- **Pros**: Battle-tested, incremental review, conversation support
-- **Cons**: Repo in maintenance mode, significant code to understand
-- **Verdict**: More effort than custom script
-
-### **Selected: Custom script + Bedrock**
-Minimal code, full control, no external dependencies, uses existing AWS infrastructure. Review format proven on PRs #64/#65.
-
----
-
-## Appendix A: Research Findings
-
-### How Teams Use LLMs for Code Review
-
-The dominant pattern is: **on PR open/update → fetch diff → send diff + context to LLM → post comments back to PR**. Key learnings:
-
-- **Greptile's data** (2.2M+ PRs): 69.5% of PRs have at least one issue flagged. 48% are logic errors, not style. 58% of comments rated helpful.
-- **Separation of concerns**: The tool that generates code should NOT review it. Independent review catches shared blind spots.
-- **Noise is the #1 killer**: If every PR gets a wall of comments, developers ignore them within a week.
-- **Cross-file context is where AI shines**: Catching logic issues that span multiple files — something humans do poorly under time pressure.
-
-### Prompt Engineering Key Lessons
-
-1. **Role definition** + **project context** = most impactful improvement
-2. **Structured output (JSON)** = reliable parsing for GitHub API
-3. **Negative examples** ("DO NOT comment on formatting") = essential for noise control
-4. **Severity levels** = developers triage findings effectively
-5. **Full file context** (not just diff) = prevents hallucinated suggestions
-
-### What AI Reviews Well vs. Leave to Humans
-
-| AI reviews well | Leave to humans |
-|----------------|-----------------|
-| Logic bugs, missing error handling | Architecture decisions |
-| Security issues, IAM anti-patterns | UX/design choices |
-| CDK/CloudFormation anti-patterns | Business logic correctness |
-| React anti-patterns | Trade-off discussions |
-| Convention violations | Whether a feature should exist |
-| Missing tests | |
-
----
-
-## Appendix B: Key References
-
-1. Greptile — "What Developers Need to Know About AI Code Reviews" — [greptile.com/blog/ai-code-review](https://www.greptile.com/blog/ai-code-review)
-2. GitHub Copilot Code Review docs — [docs.github.com](https://docs.github.com/en/copilot/using-github-copilot/code-review/using-copilot-code-review)
-3. CodeRabbit ai-pr-reviewer — [github.com/coderabbitai/ai-pr-reviewer](https://github.com/coderabbitai/ai-pr-reviewer)
-4. ChatGPT-CodeReview — [github.com/anc95/ChatGPT-CodeReview](https://github.com/anc95/ChatGPT-CodeReview)
-5. Anthropic prompt engineering — [docs.anthropic.com](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+Minimal code, full control, no external dependencies, gated behind tests, auto-resolves feedback loop, clear merge signal.
