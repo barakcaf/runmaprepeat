@@ -91,7 +91,7 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
   }, []);
 
   function handleSelect(item: SpotifyRef) {
-    onChange(item);
+    onChange({ ...item, source: "spotify" });
     setQuery("");
     setShowDropdown(false);
     setResults([]);
