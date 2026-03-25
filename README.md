@@ -61,6 +61,26 @@ A personal run tracking web app built with a fully serverless AWS architecture. 
 - **Cognito dual pool** — User Pool for auth, Identity Pool for direct AWS service access (Location Service)
 - **CloudFront SPA hosting** — S3 origin with 403/404 → index.html rewrites for client-side routing
 
+### AI Code Review & Auto-Fix Pipeline
+
+Every PR is automatically reviewed and fixed by AI agents:
+
+```
+PR push → Tests (Vitest/pytest/CDK) → AI Review (Opus 4.6) → Auto-Fix (Sonnet 4) → Re-review
+```
+
+| Agent | Model | What it does |
+|-------|-------|--------------|
+| **Review Agent** | Claude Opus 4.6 (Bedrock) | Reviews diffs for security, bugs, AWS best practices, test coverage. Posts inline comments with severity levels. Auto-resolves previously-fixed issues. |
+| **Fix Agent** | Claude Sonnet 4 (Bedrock) | Reads review findings, fixes source code, runs tests, pushes. Reverts fixes that break tests. Max 2 cycles before escalating to human. |
+
+- **Security enforced**: SLATS rules in `.claude/rules/security.md` auto-loaded by all agents
+- **Zero human intervention** for review + fix cycle
+- **Human approval required** for merge (bot never approves)
+- **Disable per-PR**: add `no-auto-fix` label to skip auto-fix
+
+See [AI Review & Fix Pipeline Design Doc](docs/design/ai-review-and-fix-pipeline.md) for full details.
+
 ### CI/CD Pipeline
 
 ![RunMapRepeat CI/CD Pipeline](docs/cicd-pipeline.png)
@@ -95,11 +115,24 @@ A personal run tracking web app built with a fully serverless AWS architecture. 
 | **CI/CD** | AWS CodePipeline V2 + CodeBuild (ARM64) |
 | **Notifications** | Telegram Bot API (pipeline events + GitHub webhooks) |
 | **Music** | Spotify Web API (search) |
+| **AI Review** | Claude Opus 4.6 + Sonnet 4 via Amazon Bedrock (OIDC) |
 
 ## Project Structure
 
 ```
 runmaprepeat/
+├── .claude/                # Claude Code configuration
+│   └── rules/              # Auto-loaded rules (security, backend, frontend, infra)
+├── .github/
+│   ├── workflows/
+│   │   ├── pr-review.yml   # Tests → AI review → trigger fix
+│   │   └── claude-fix.yml  # Auto-fix via claude-code-action
+│   ├── scripts/
+│   │   ├── ai_review.py    # Review agent (Opus 4.6 + Bedrock)
+│   │   └── test_ai_review.py
+│   └── prompts/
+│       ├── review.md       # Review prompt template
+│       └── fix.md          # Fix agent instructions
 ├── frontend/               # React SPA
 │   ├── src/
 │   │   ├── api/            # API client (Cognito-authed fetch)
