@@ -40,9 +40,9 @@ def _validate_waypoints(body: dict[str, Any]) -> list[str]:
         return ["waypoints must be an array"]
 
     if len(waypoints) < MIN_WAYPOINTS:
-        errors.append(f"At least {MIN_WAYPOINTS} waypoints are required")
+        return [f"At least {MIN_WAYPOINTS} waypoints are required"]
     if len(waypoints) > MAX_WAYPOINTS:
-        errors.append(f"At most {MAX_WAYPOINTS} waypoints are allowed")
+        return [f"At most {MAX_WAYPOINTS} waypoints are allowed"]
 
     for i, wp in enumerate(waypoints):
         if not isinstance(wp, list) or len(wp) != 2:
