@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 MAX_FILES = 15
 MAX_CHANGED_LINES = 1500
 MODEL_ID = "us.anthropic.claude-opus-4-6-v1"
-MAX_OUTPUT_TOKENS = 4096
+MAX_OUTPUT_TOKENS = 8192
 
 SKIP_PATTERNS = (
     "cdk.out/", "node_modules/", "__pycache__/", "dist/", ".git/",
@@ -73,6 +73,11 @@ def gh_headers() -> dict[str, str]:
     }
 
 
+def _safe_log_url(url: str) -> str:
+    """Strip any query parameters that might contain tokens."""
+    return url.split("?")[0] if "?" in url else url
+
+
 def gh_get(path: str) -> dict | list:
     url = f"{GITHUB_API}{path}"
     req = urllib.request.Request(url, headers=gh_headers())
@@ -81,7 +86,7 @@ def gh_get(path: str) -> dict | list:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body = e.read().decode() if hasattr(e, "read") else ""
-        log.error("GitHub API GET %s failed: %s %s — %s", path, e.code, e.reason, body[:500])
+        log.error("GitHub API GET %s failed: %s %s — %s", _safe_log_url(url), e.code, e.reason, body[:500])
         raise
 
 
@@ -103,7 +108,7 @@ def gh_get_all(path: str) -> list:
                             url = match.group(1)
         except urllib.error.HTTPError as e:
             body = e.read().decode() if hasattr(e, "read") else ""
-            log.error("GitHub API GET %s failed: %s %s — %s", url, e.code, e.reason, body[:500])
+            log.error("GitHub API GET %s failed: %s %s — %s", _safe_log_url(url or ""), e.code, e.reason, body[:500])
             raise
     return results
 
@@ -120,7 +125,7 @@ def gh_post(path: str, body: dict) -> dict:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         error_body = e.read().decode() if hasattr(e, "read") else ""
-        log.error("GitHub API POST %s failed: %s %s — %s", path, e.code, e.reason, error_body[:500])
+        log.error("GitHub API POST %s failed: %s %s — %s", _safe_log_url(url), e.code, e.reason, error_body[:500])
         raise
 
 
@@ -164,17 +169,6 @@ def get_file_content(repo: str, path: str, ref: str) -> str | None:
 # ---------------------------------------------------------------------------
 # Existing comment helpers
 # ---------------------------------------------------------------------------
-
-def fetch_bot_review_comments(repo: str, pr_number: int) -> list[dict]:
-    """Fetch all review comments on the PR posted by the bot."""
-    all_comments = gh_get_all(f"/repos/{repo}/pulls/{pr_number}/comments")
-    bot_comments = [
-        c for c in all_comments
-        if c.get("user", {}).get("login") == BOT_LOGIN
-        and "AI Code Review" not in c.get("body", "")  # skip summary reviews
-    ]
-    return bot_comments
-
 
 def fetch_review_threads(repo: str, pr_number: int) -> list[dict]:
     """Fetch review threads with their resolved status using GraphQL.
@@ -308,8 +302,19 @@ def parse_diff_line_map(patch: str) -> dict[int, int]:
 # Bedrock
 # ---------------------------------------------------------------------------
 
+_bedrock_client = None
+
+
+def _get_bedrock_client():
+    """Return a cached Bedrock runtime client."""
+    global _bedrock_client
+    if _bedrock_client is None:
+        _bedrock_client = boto3.client("bedrock-runtime", region_name="us-east-1")
+    return _bedrock_client
+
+
 def call_bedrock(prompt: str) -> str:
-    client = boto3.client("bedrock-runtime", region_name="us-east-1")
+    client = _get_bedrock_client()
     response = client.converse(
         modelId=MODEL_ID,
         messages=[{"role": "user", "content": [{"text": prompt}]}],
@@ -464,9 +469,15 @@ def resolve_fixed_comments(
     resolutions = result.get("resolutions", [])
     resolved_count = 0
 
+    # Build set of known thread IDs for validation
+    known_thread_ids = {t["thread_id"] for t in unresolved}
+
     for res in resolutions:
         if res.get("resolved"):
             thread_id = res.get("thread_id", "")
+            if thread_id not in known_thread_ids:
+                log.warning("LLM returned unknown thread_id %s, skipping", thread_id)
+                continue
             reason = res.get("reason", "Fixed by new changes")
             if resolve_thread(thread_id):
                 log.info("Resolved thread %s: %s", thread_id, reason)
