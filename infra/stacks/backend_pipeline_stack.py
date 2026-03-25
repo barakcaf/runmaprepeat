@@ -136,19 +136,7 @@ class BackendPipelineStack(Stack):
             "BackendPipeline",
             pipeline_name="RunMapRepeat-Backend-Pipeline",
             pipeline_type=codepipeline.PipelineType.V2,
-            triggers=[
-                codepipeline.TriggerProps(
-                    provider_type=codepipeline.ProviderType.CODE_STAR_SOURCE_CONNECTION,
-                    git_configuration=codepipeline.GitConfiguration(
-                        source_action=source_action,
-                        push_filter=[
-                            codepipeline.GitPushFilter(
-                                branches_includes=["main"],
-                            ),
-                        ],
-                    ),
-                ),
-            ],
+            # Auto-trigger handled by WebhookStack (GitHub → API GW → Lambda)
             stages=[
                 codepipeline.StageProps(
                     stage_name="Source",
