@@ -43,8 +43,31 @@
 - `fix/*` — bug fix branches, PR required to merge
 - `chore/*` — maintenance, docs, CI changes
 
-## PR Rules
-- All PRs require passing PR Review Agent
+## PR Merge Rules — MANDATORY
+
+**A PR may ONLY be merged when ALL of the following are true:**
+
+1. ✅ **All CI jobs passed** — every job in the workflow must show `conclusion: success` or `conclusion: skipped` (legitimate skip only)
+2. ✅ **No CRITICAL or HIGH findings** from AI Code Review — if the review flagged HIGH or CRITICAL, they must be resolved first
+3. ✅ **Auto-Fix job did NOT fail** — if `Trigger Auto-Fix` has `conclusion: failure`, that means the fix pipeline is broken and findings were NOT addressed. **DO NOT MERGE.** Investigate the failure first.
+4. ✅ **No unresolved review comments** requesting changes
+
+**Explicit blockers (never merge if any of these are true):**
+- ❌ `Trigger Auto-Fix` job failed (not skipped — *failed*). This means HIGH findings exist but auto-fix couldn't run. Treat as a merge blocker.
+- ❌ AI Review flagged HIGH/CRITICAL and no follow-up fix commit addressed them
+- ❌ Any required CI job failed (even if `continue-on-error` made the workflow green)
+
+**How to check before merging:**
+```bash
+# Verify all jobs — look for conclusion: failure on ANY job
+gh pr view <PR#> --json statusCheckRollup --jq '.statusCheckRollup[] | {name, status, conclusion}'
+
+# Read the AI review comment for severity levels
+gh pr view <PR#> --json reviews --jq '.reviews[] | select(.author.login=="github-actions") | .body'
+```
+
+### General PR rules
+- All PRs require passing PR Review workflow
 - No direct pushes to `main` (except initial setup)
 - Squash merge preferred
 - Delete branch after merge

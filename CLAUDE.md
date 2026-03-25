@@ -56,6 +56,12 @@ infra/        AWS CDK (Python)
 - Cognito `sub` from JWT is the userId for all user-scoped DynamoDB operations
 - Lambda handlers must return `{ statusCode, headers, body }` — body is always a JSON string
 
+## Merge Gate Rules
+- **NEVER merge a PR where `Trigger Auto-Fix` job has `conclusion: failure`** — this means the auto-fix pipeline is broken and HIGH/CRITICAL findings were not addressed
+- **NEVER merge a PR with unresolved HIGH or CRITICAL AI review findings** — read the review comment, not just the green checkmark
+- **ALL CI jobs must be `success` or legitimately `skipped`** — `failure` on any job is a merge blocker, even if the overall workflow appears green
+- When in doubt: `gh pr view <PR#> --json statusCheckRollup,reviews` and read the actual findings
+
 ## Deployment Rules
 - **NEVER apply fixes directly to production** (Lambda env vars, configs, etc.)
 - **ALL changes go through IaC (CDK)** — commit, PR, review, merge, deploy via pipeline
