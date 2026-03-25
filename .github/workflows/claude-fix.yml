@@ -48,4 +48,4 @@ jobs:
           claude_args: "--model sonnet --max-turns 30"
           github_token: ${{ steps.app-token.outputs.token }}
           trigger_phrase: "@claude"
-          timeout_minutes: 15
+          allowed_bots: "runmaprepeat-autofix[bot],github-actions[bot]"
