@@ -160,6 +160,7 @@ def _transform_results(raw: dict[str, Any]) -> dict[str, Any]:
                 "imageUrl": _pick_image(item.get("images", [])),
                 "spotifyUrl": item.get("external_urls", {}).get("spotify", ""),
                 "type": "artist",
+                "source": "spotify",
             }
             for item in raw["artists"].get("items", [])
         ]
@@ -173,6 +174,7 @@ def _transform_results(raw: dict[str, Any]) -> dict[str, Any]:
                 "imageUrl": _pick_image(item.get("images", [])),
                 "spotifyUrl": item.get("external_urls", {}).get("spotify", ""),
                 "type": "album",
+                "source": "spotify",
             }
             for item in raw["albums"].get("items", [])
         ]
@@ -187,6 +189,7 @@ def _transform_results(raw: dict[str, Any]) -> dict[str, Any]:
                 "imageUrl": _pick_image(item.get("album", {}).get("images", [])),
                 "spotifyUrl": item.get("external_urls", {}).get("spotify", ""),
                 "type": "track",
+                "source": "spotify",
             }
             for item in raw["tracks"].get("items", [])
         ]
