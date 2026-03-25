@@ -1,0 +1,8 @@
+"""Pytest configuration — custom markers."""
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "integration: marks tests that hit real external APIs (deselect with '-m \"not integration\"')",
+    )

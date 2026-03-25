@@ -26,7 +26,7 @@ def test_rest_api_created() -> None:
 
 def test_lambda_functions_created() -> None:
     template = _create_api_stack()
-    template.resource_count_is("AWS::Lambda::Function", 3)
+    template.resource_count_is("AWS::Lambda::Function", 4)
 
 
 def test_lambda_uses_arm64() -> None:
@@ -59,6 +59,35 @@ def test_api_has_cors() -> None:
     template.has_resource_properties(
         "AWS::ApiGateway::Method",
         {"HttpMethod": "OPTIONS"},
+    )
+
+
+def test_spotify_search_lambda_has_ssm_policy() -> None:
+    template = _create_api_stack()
+    template.has_resource_properties(
+        "AWS::IAM::Policy",
+        {
+            "PolicyDocument": {
+                "Statement": assertions.Match.array_with(
+                    [
+                        assertions.Match.object_like(
+                            {
+                                "Action": ["ssm:GetParameter", "ssm:GetParameters"],
+                                "Effect": "Allow",
+                            }
+                        )
+                    ]
+                ),
+            },
+        },
+    )
+
+
+def test_spotify_search_lambda_created() -> None:
+    template = _create_api_stack()
+    template.has_resource_properties(
+        "AWS::Lambda::Function",
+        {"Handler": "handlers.spotify_search.handler"},
     )
 
 

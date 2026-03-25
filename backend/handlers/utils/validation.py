@@ -93,9 +93,7 @@ def validate_run(body: dict[str, Any]) -> list[str]:
     return errors
 
 
-_AUDIO_TYPES = ("music", "podcast")
-_MUSIC_SUBTYPES = ("artist", "playlist")
-_ARTIST_FORMATS = ("album", "mix")
+_SPOTIFY_TYPES = ("artist", "album", "track")
 
 
 def validate_audio(audio: Any) -> list[str]:
@@ -105,27 +103,32 @@ def validate_audio(audio: Any) -> list[str]:
     if not isinstance(audio, dict):
         return ["audio must be an object"]
 
-    audio_type = audio.get("type")
-    if audio_type not in _AUDIO_TYPES:
-        errors.append(f"audio.type must be one of: {', '.join(_AUDIO_TYPES)}")
+    source = audio.get("source")
+    if source is None:
         return errors
 
-    name = audio.get("name")
-    if not isinstance(name, str) or not name.strip():
-        errors.append("audio.name is required and must be a non-empty string")
+    if source == "spotify":
+        if "spotifyId" not in audio or not isinstance(audio["spotifyId"], str):
+            errors.append("audio.spotifyId is required for spotify source")
+        audio_type = audio.get("type")
+        if audio_type not in _SPOTIFY_TYPES:
+            errors.append(f"audio.type must be one of: {', '.join(_SPOTIFY_TYPES)}")
+        name = audio.get("name")
+        if not isinstance(name, str) or not name.strip():
+            errors.append("audio.name is required and must be a non-empty string")
+        if "spotifyUrl" not in audio or not isinstance(audio["spotifyUrl"], str):
+            errors.append("audio.spotifyUrl is required for spotify source")
+    elif source == "manual":
+        name = audio.get("name")
+        if not isinstance(name, str) or not name.strip():
+            errors.append("audio.name is required and must be a non-empty string")
+    else:
+        errors.append("audio.source must be 'spotify' or 'manual'")
 
-    if "detail" in audio:
-        if not isinstance(audio["detail"], str):
-            errors.append("audio.detail must be a string")
-
-    if audio_type == "music":
-        subtype = audio.get("subtype")
-        if subtype not in _MUSIC_SUBTYPES:
-            errors.append(f"audio.subtype must be one of: {', '.join(_MUSIC_SUBTYPES)}")
-        elif subtype == "artist":
-            fmt = audio.get("format")
-            if fmt not in _ARTIST_FORMATS:
-                errors.append(f"audio.format must be one of: {', '.join(_ARTIST_FORMATS)}")
+    if "artistName" in audio and not isinstance(audio["artistName"], str):
+        errors.append("audio.artistName must be a string")
+    if "albumName" in audio and not isinstance(audio["albumName"], str):
+        errors.append("audio.albumName must be a string")
 
     return errors
 
