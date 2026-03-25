@@ -69,7 +69,7 @@ describe("RunDetailPage audio display", () => {
         type: "track",
         name: "Levitating",
         artistName: "Dua Lipa",
-        imageUrl: "https://example.com/img.jpg",
+        imageUrl: "https://i.scdn.co/image/img.jpg",
         spotifyUrl: "https://open.spotify.com/track/track1",
       },
     };
@@ -88,7 +88,7 @@ describe("RunDetailPage audio display", () => {
     expect(link).toHaveAttribute("target", "_blank");
 
     const artwork = screen.getByAltText("Levitating");
-    expect(artwork).toHaveAttribute("src", "https://example.com/img.jpg");
+    expect(artwork).toHaveAttribute("src", "https://i.scdn.co/image/img.jpg");
   });
 
   it("shows manual audio as plain text", async () => {
