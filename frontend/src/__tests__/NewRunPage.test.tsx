@@ -1,7 +1,11 @@
-import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, vi, beforeAll } from "vitest";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { NewRunPage } from "../pages/NewRunPage";
+import type { SpotifyRef } from "../types/audio";
+
+const mockCreateRun = vi.fn();
+const mockSearchSpotify = vi.fn();
 
 beforeAll(() => {
   vi.mock("maplibre-gl", () => {
@@ -39,8 +43,14 @@ beforeAll(() => {
   });
 
   vi.mock("../api/client", () => ({
-    createRun: vi.fn(),
+    createRun: (...args: unknown[]) => mockCreateRun(...args),
+    searchSpotify: (...args: unknown[]) => mockSearchSpotify(...args),
   }));
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 function renderNewRunPage() {
@@ -97,5 +107,187 @@ describe("NewRunPage map integration", () => {
     expect(toggle.textContent).toBe("Hide Map");
     // No "km" in the button text when no route drawn
     expect(toggle.textContent).not.toContain("km");
+  });
+});
+
+const sampleSpotifyResults: SpotifyRef[] = [
+  {
+    source: "spotify",
+    spotifyId: "artist1",
+    type: "artist",
+    name: "Daft Punk",
+    imageUrl: "https://i.scdn.co/image/daft.jpg",
+    spotifyUrl: "https://open.spotify.com/artist/artist1",
+  },
+  {
+    source: "spotify",
+    spotifyId: "album1",
+    type: "album",
+    name: "Random Access Memories",
+    artistName: "Daft Punk",
+    imageUrl: "https://i.scdn.co/image/ram.jpg",
+    spotifyUrl: "https://open.spotify.com/album/album1",
+  },
+  {
+    source: "spotify",
+    spotifyId: "track1",
+    type: "track",
+    name: "Get Lucky",
+    artistName: "Daft Punk",
+    imageUrl: "https://i.scdn.co/image/lucky.jpg",
+    spotifyUrl: "https://open.spotify.com/track/track1",
+  },
+];
+
+async function searchAndSelectSpotify(query: string, resultIndex: number) {
+  vi.useFakeTimers();
+  const searchInput = screen.getByLabelText("Search Spotify");
+  fireEvent.change(searchInput, { target: { value: query } });
+
+  await act(async () => {
+    vi.advanceTimersByTime(300);
+  });
+  vi.useRealTimers();
+
+  await waitFor(() => {
+    expect(screen.getByTestId("spotify-dropdown")).toBeInTheDocument();
+  });
+
+  const options = screen.getAllByRole("option");
+  fireEvent.click(options[resultIndex]);
+}
+
+describe("NewRunPage Spotify integration", () => {
+  it("renders Spotify search section", () => {
+    renderNewRunPage();
+    expect(screen.getByText("Audio")).toBeInTheDocument();
+    expect(screen.getByText("Search Spotify")).toBeInTheDocument();
+  });
+
+  it("selecting a Spotify result shows confirmation card", async () => {
+    mockSearchSpotify.mockResolvedValue({
+      artists: [sampleSpotifyResults[0]],
+      albums: [sampleSpotifyResults[1]],
+      tracks: [sampleSpotifyResults[2]],
+    });
+
+    renderNewRunPage();
+    await searchAndSelectSpotify("Daft Punk", 0);
+
+    // After selection, chip should be visible
+    await waitFor(() => {
+      expect(screen.getByTestId("spotify-chip")).toBeInTheDocument();
+    });
+
+    const chip = screen.getByTestId("spotify-chip");
+    expect(chip.textContent).toContain("Daft Punk");
+  });
+
+  it("selected Spotify audio is included in form submission", async () => {
+    mockSearchSpotify.mockResolvedValue({
+      artists: [sampleSpotifyResults[0]],
+      albums: [],
+      tracks: [],
+    });
+
+    mockCreateRun.mockResolvedValue({
+      runId: "run123",
+      status: "completed",
+      runDate: "2024-01-01T10:00:00Z",
+      createdAt: "2024-01-01T10:00:00Z",
+      updatedAt: "2024-01-01T10:00:00Z",
+    });
+
+    renderNewRunPage();
+
+    // Select Spotify audio
+    await searchAndSelectSpotify("Daft", 0);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("spotify-chip")).toBeInTheDocument();
+    });
+
+    // Fill in required fields
+    fireEvent.change(screen.getByLabelText("Duration (HH:MM:SS)"), {
+      target: { value: "0:30:00" },
+    });
+
+    // Submit form
+    fireEvent.click(screen.getByRole("button", { name: /save run/i }));
+
+    // Verify createRun was called with audio field
+    await waitFor(() => {
+      expect(mockCreateRun).toHaveBeenCalled();
+    });
+
+    const callArg = mockCreateRun.mock.calls[0][0];
+    expect(callArg).toHaveProperty("audio");
+    expect(callArg.audio).toEqual(sampleSpotifyResults[0]);
+  });
+
+  it("remove button clears Spotify selection", async () => {
+    mockSearchSpotify.mockResolvedValue({
+      artists: [sampleSpotifyResults[0]],
+      albums: [],
+      tracks: [],
+    });
+
+    renderNewRunPage();
+    await searchAndSelectSpotify("Daft", 0);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("spotify-chip")).toBeInTheDocument();
+    });
+
+    // Click remove button
+    fireEvent.click(screen.getByLabelText("Remove audio"));
+
+    // Chip should be gone, search input should be back
+    expect(screen.queryByTestId("spotify-chip")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Search Spotify")).toBeInTheDocument();
+  });
+
+  it("manual audio entry works", async () => {
+    mockCreateRun.mockResolvedValue({
+      runId: "run123",
+      status: "completed",
+      runDate: "2024-01-01T10:00:00Z",
+      createdAt: "2024-01-01T10:00:00Z",
+      updatedAt: "2024-01-01T10:00:00Z",
+    });
+
+    renderNewRunPage();
+
+    // Switch to manual mode
+    fireEvent.click(screen.getByText("Enter manually"));
+
+    // Enter manual audio
+    fireEvent.change(screen.getByLabelText("Audio name"), {
+      target: { value: "My Running Playlist" },
+    });
+    fireEvent.change(screen.getByLabelText("Artist name"), {
+      target: { value: "Various Artists" },
+    });
+
+    // Fill required fields
+    fireEvent.change(screen.getByLabelText("Duration (HH:MM:SS)"), {
+      target: { value: "0:30:00" },
+    });
+
+    // Submit form
+    fireEvent.click(screen.getByRole("button", { name: /save run/i }));
+
+    // Verify createRun was called with manual audio
+    await waitFor(() => {
+      expect(mockCreateRun).toHaveBeenCalled();
+    });
+
+    const callArg = mockCreateRun.mock.calls[0][0];
+    expect(callArg).toHaveProperty("audio");
+    expect(callArg.audio).toEqual({
+      source: "manual",
+      name: "My Running Playlist",
+      artistName: "Various Artists",
+    });
   });
 });
