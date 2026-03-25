@@ -37,7 +37,7 @@ export function formatDateTime(isoString: string): string {
   const timePart = date.toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false,
+    hourCycle: "h23",
   });
   return `${datePart} at ${timePart}`;
 }
