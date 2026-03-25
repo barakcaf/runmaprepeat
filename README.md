@@ -12,3 +12,4 @@ A personal run tracker application.
 ## Setup
 
 _Setup instructions coming soon._
+
