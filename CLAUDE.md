@@ -61,3 +61,9 @@ infra/        AWS CDK (Python)
 - **ALL changes go through IaC (CDK)** — commit, PR, review, merge, deploy via pipeline
 - Hotfixes are not hotfixes — they get overwritten on next deploy and create drift
 - If something is broken in prod, fix it in code and deploy through the pipeline
+
+## PR Merge Rules
+- **NEVER merge a PR with unresolved CRITICAL or HIGH findings** — no exceptions
+- If the auto-fix agent didn't run or failed, fix manually before merging
+- Wait for the review agent to complete and confirm "✅ Ready for Merge" before merging
+- If unsure, re-run the review after fixes and verify zero CRITICAL/HIGH findings
