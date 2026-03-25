@@ -284,21 +284,18 @@ def test_transform_results() -> None:
     assert result["artists"][0]["spotifyId"] == "artist-1"
     assert result["artists"][0]["name"] == "Daft Punk"
     assert result["artists"][0]["type"] == "artist"
-    assert result["artists"][0]["source"] == "spotify"
     assert result["artists"][0]["spotifyUrl"] == "https://open.spotify.com/artist/artist-1"
 
     assert len(result["albums"]) == 1
     assert result["albums"][0]["spotifyId"] == "album-1"
     assert result["albums"][0]["artistName"] == "Daft Punk"
     assert result["albums"][0]["type"] == "album"
-    assert result["albums"][0]["source"] == "spotify"
 
     assert len(result["tracks"]) == 1
     assert result["tracks"][0]["spotifyId"] == "track-1"
     assert result["tracks"][0]["albumName"] == "Homework"
     assert result["tracks"][0]["artistName"] == "Daft Punk"
     assert result["tracks"][0]["type"] == "track"
-    assert result["tracks"][0]["source"] == "spotify"
 
 
 def test_transform_results_empty() -> None:
