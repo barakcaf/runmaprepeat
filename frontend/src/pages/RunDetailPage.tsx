@@ -18,6 +18,7 @@ export function RunDetailPage() {
   const [editTitle, setEditTitle] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [editDate, setEditDate] = useState("");
+  const [originalRunDate, setOriginalRunDate] = useState("");
   const [saving, setSaving] = useState(false);
 
   const [completing, setCompleting] = useState(false);
@@ -31,6 +32,7 @@ export function RunDetailPage() {
         setRun(data);
         setEditTitle(data.title ?? "");
         setEditNotes(data.notes ?? "");
+        setOriginalRunDate(data.runDate);
         setEditDate(new Date(data.runDate).toLocaleDateString("sv-SE"));
       })
       .catch((err: Error) => setError(err.message))
@@ -41,12 +43,25 @@ export function RunDetailPage() {
     if (!runId) return;
     setSaving(true);
     try {
+      // Only send runDate if the user actually changed the date
+      let runDate: string | undefined;
+      const originalDateStr = new Date(originalRunDate).toLocaleDateString("sv-SE");
+      if (editDate && editDate !== originalDateStr) {
+        // User changed the date — preserve the original time component
+        const orig = new Date(originalRunDate);
+        const [year, month, day] = editDate.split("-").map(Number);
+        const updated = new Date(orig);
+        updated.setFullYear(year, month - 1, day);
+        runDate = updated.toISOString();
+      }
+
       const updated = await updateRun(runId, {
         title: editTitle.trim() || undefined,
         notes: editNotes.trim() || undefined,
-        runDate: editDate ? new Date(editDate).toISOString() : undefined,
+        ...(runDate !== undefined ? { runDate } : {}),
       });
       setRun(updated);
+      setOriginalRunDate(updated.runDate);
       setEditing(false);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to save";
