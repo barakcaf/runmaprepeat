@@ -50,6 +50,8 @@ jobs:
           github_token: ${{ steps.app-token.outputs.token }}
           trigger_phrase: "@claude"
           allowed_bots: "runmaprepeat-autofix[bot],github-actions[bot]"
+          bot_id: "270995726"
+          bot_name: "runmaprepeat-autofix"
 
       - name: Gather fix summary
         if: always()
