@@ -10,7 +10,7 @@
 
 ## 1. Executive Summary
 
-After the AI code review agent posts findings on a PR, an auto-fix agent automatically attempts to resolve them. It uses the official `anthropics/claude-code-action@v1` GitHub Action with Amazon Bedrock (Opus 4.6) via OIDC federation — no Anthropic API key required. The fix agent reads project steering docs (CLAUDE.md, AGENTS.md), edits code, runs tests, and pushes a fix commit that triggers a re-review cycle.
+After the AI code review agent posts findings on a PR, an auto-fix agent automatically attempts to resolve them. It uses the official `anthropics/claude-code-action@v1` GitHub Action with Amazon Bedrock (Sonnet 4) via OIDC federation — no Anthropic API key required. The fix agent reads project steering docs (CLAUDE.md, AGENTS.md), edits code, runs tests, and pushes a fix commit that triggers a re-review cycle. The review agent uses Opus 4.6 for high-quality analysis; the fix agent uses Sonnet 4 for cost-efficient code edits.
 
 ---
 
@@ -26,9 +26,10 @@ After the AI code review agent posts findings on a PR, an auto-fix agent automat
 │  │ Job 1:   │    │ Job 2:   │    │ Job 3:            │  │
 │  │ test     │───▶│ review   │───▶│ fix               │  │
 │  │          │    │          │    │                   │  │
-│  │ vitest   │    │ custom   │    │ claude-code-action│  │
-│  │ pytest   │    │ script + │    │ @v1               │  │
-│  │ cdk test │    │ bedrock  │    │ + bedrock OIDC    │  │
+│  │ vitest   │    │ script + │    │ claude-code-action│  │
+│  │ pytest   │    │ bedrock  │    │ @v1               │  │
+│  │ cdk test │    │ Opus 4.6 │    │ + bedrock OIDC    │  │
+│  │          │    │          │    │ Sonnet 4          │  │
 │  └──────────┘    └──────────┘    └─────────┬─────────┘  │
 │                                            │            │
 └────────────────────────────────────────────┼────────────┘
@@ -424,7 +425,7 @@ jobs:
 
             ${{ needs.review.outputs.findings_summary }}
           claude_args: |
-            --model us.anthropic.claude-opus-4-6-v1
+            --model us.anthropic.claude-sonnet-4-20250514-v1:0
             --max-turns 30
           timeout_minutes: 15
         env:
@@ -700,30 +701,27 @@ We need a token that DOES trigger workflows. Options:
 
 | Component | Tokens | Cost |
 |-----------|--------|------|
-| Input (steering docs + code + findings) | ~15-30K | ~$2-5 |
-| Output (edits + test runs + reasoning) | ~5-15K | ~$3-8 |
-| Total per fix run | | **~$5-13** |
+| Input (steering docs + code + findings) | ~15-30K | ~$0.50-1.00 |
+| Output (edits + test runs + reasoning) | ~5-15K | ~$0.50-1.50 |
+| Total per fix run | | **~$1-3** |
 
 ### Monthly Estimate (5-10 PRs/week)
 
 | Scenario | Fix runs/month | Monthly cost |
 |----------|---------------|-------------|
-| Most PRs clean (20% need fixes) | 8-16 | $40-200 |
-| Half need fixes | 20-40 | $100-520 |
-| Every PR needs fixes | 40-80 | $200-1000 |
+| Most PRs clean (20% need fixes) | 8-16 | $8-48 |
+| Half need fixes | 20-40 | $20-120 |
+| Every PR needs fixes | 40-80 | $40-240 |
 
-**Note:** Opus 4.6 is expensive for agentic loops. If costs are too high, we can:
-1. Only auto-fix MEDIUM findings (skip CRITICAL/HIGH for human)
-2. Use Sonnet for the fix agent (cheaper, still capable for code edits)
-3. Limit to 1 fix cycle instead of 2
+**Note:** Using Sonnet 4 (not Opus) for the fix agent keeps costs ~5x lower than Opus while still being highly capable for code edits. Opus is reserved for the review agent where reasoning quality matters most.
 
 ### Combined Monthly (Review + Fix)
 
 | Component | Estimate |
 |-----------|----------|
-| Review agent (Opus) | $15-25 |
-| Fix agent (Opus) | $40-200 |
-| **Total** | **$55-225** |
+| Review agent (Opus 4.6) | $15-25 |
+| Fix agent (Sonnet 4) | $8-48 |
+| **Total** | **$23-73** |
 
 ---
 
@@ -768,10 +766,8 @@ We need a token that DOES trigger workflows. Options:
 
 ## 11. Open Questions
 
-1. **Cost tolerance:** Opus fix runs could be $5-13 each. Is that acceptable, or should we use Sonnet for the fix agent?
-2. **Fix scope:** Should we auto-fix all severities, or only MEDIUM/LOW (leaving CRITICAL/HIGH for humans)?
-3. **GitHub App name:** `runmaprepeat-autofix` or something more generic for future repos?
-4. **Max turns:** 30 seems reasonable for most fixes. Too high? Too low?
+1. **GitHub App name:** `runmaprepeat-autofix` or something more generic for future repos?
+2. **Max turns:** 30 seems reasonable for most fixes. Too high? Too low?
 
 ---
 
