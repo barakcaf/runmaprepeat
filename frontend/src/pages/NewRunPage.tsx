@@ -4,7 +4,7 @@ import { createRun } from "../api/client";
 import { RunMap } from "../components/Map/RunMap";
 import { SpotifySearch } from "../components/Spotify/SpotifySearch";
 import { calculateRouteDistance, formatDistance } from "../utils/distance";
-import type { AudioRef } from "../types/audio";
+import type { AudioRefs } from "../types/audio";
 import type { Coordinate, CreateRunPayload } from "../types/run";
 import shared from "../styles/shared.module.css";
 import styles from "../styles/NewRunPage.module.css";
@@ -43,7 +43,7 @@ export function NewRunPage() {
     setDistanceMeters(calculateRouteDistance(coords));
   }, []);
 
-  const [audio, setAudio] = useState<AudioRef | undefined>(undefined);
+  const [audio, setAudio] = useState<AudioRefs>([]);
 
   function parseDuration(input: string): number | null {
     if (!input.trim()) return null;
@@ -73,7 +73,7 @@ export function NewRunPage() {
       ...(route.length >= 2 ? { route, distanceMeters } : {}),
       ...(status === "completed" && durationSeconds ? { durationSeconds } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
-      ...(audio ? { audio } : {}),
+      ...(audio.length > 0 ? { audio } : {}),
     };
 
     try {

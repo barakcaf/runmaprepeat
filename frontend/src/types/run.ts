@@ -1,4 +1,4 @@
-import type { AudioRef } from "./audio";
+import type { AudioRef, AudioRefs } from "./audio";
 
 export type Coordinate = [number, number]; // [lng, lat] — MapLibre convention
 
@@ -14,7 +14,7 @@ export interface Run {
   durationSeconds?: number;
   elevationGainMeters?: number;
   notes?: string;
-  audio?: AudioRef;
+  audio?: AudioRef | AudioRefs;
   paceSecondsPerKm?: number;
   caloriesBurned?: number;
 }
@@ -28,7 +28,7 @@ export interface CreateRunPayload {
   durationSeconds?: number;
   elevationGainMeters?: number;
   notes?: string;
-  audio?: AudioRef;
+  audio?: AudioRefs;
 }
 
 export interface UpdateRunPayload {
@@ -39,7 +39,7 @@ export interface UpdateRunPayload {
   distanceMeters?: number;
   durationSeconds?: number;
   elevationGainMeters?: number;
-  audio?: AudioRef | null;
+  audio?: AudioRefs | null;
 }
 
 export interface CompleteRunPayload {

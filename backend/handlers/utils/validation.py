@@ -88,7 +88,13 @@ def validate_run(body: dict[str, Any]) -> list[str]:
             errors.append("elevationGainMeters must be a non-negative number")
 
     if "audio" in body:
-        errors.extend(validate_audio(body["audio"]))
+        audio = body["audio"]
+        if isinstance(audio, list):
+            for i, item in enumerate(audio):
+                item_errors = validate_audio(item)
+                errors.extend(f"audio[{i}].{e.split('.', 1)[1]}" if '.' in e else e for e in item_errors)
+        else:
+            errors.extend(validate_audio(audio))
 
     return errors
 

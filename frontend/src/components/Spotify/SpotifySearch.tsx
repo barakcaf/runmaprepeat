@@ -2,19 +2,20 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { searchSpotify } from "../../api/client";
 import type { SpotifySearchResult } from "../../api/client";
 import type { AudioRef, SpotifyRef } from "../../types/audio";
+import { MAX_AUDIO_SELECTIONS } from "../../types/audio";
 import styles from "./SpotifySearch.module.css";
 
 const DEBOUNCE_MS = 300;
 const isValidSpotifyImage = (url: string) => url.startsWith("https://i.scdn.co/");
 
 interface SpotifySearchProps {
-  value: AudioRef | undefined;
-  onChange: (audio: AudioRef | undefined) => void;
+  value: AudioRef[];
+  onChange: (audio: AudioRef[]) => void;
 }
 
 export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
   const [mode, setMode] = useState<"spotify" | "manual">(
-    value?.source === "manual" ? "manual" : "spotify"
+    value.length === 1 && value[0].source === "manual" ? "manual" : "spotify"
   );
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SpotifyRef[]>([]);
@@ -23,15 +24,15 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
   const [activeIndex, setActiveIndex] = useState(-1);
   const [searched, setSearched] = useState(false);
 
-  const [manualName, setManualName] = useState(
-    value?.source === "manual" ? value.name : ""
-  );
-  const [manualArtist, setManualArtist] = useState(
-    value?.source === "manual" ? (value.artistName ?? "") : ""
-  );
+  const manualItem = value.length === 1 && value[0].source === "manual" ? value[0] : undefined;
+  const [manualName, setManualName] = useState(manualItem?.name ?? "");
+  const [manualArtist, setManualArtist] = useState(manualItem?.artistName ?? "");
 
   const containerRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const spotifyItems = value.filter((v): v is SpotifyRef => v.source === "spotify");
+  const atMax = spotifyItems.length >= MAX_AUDIO_SELECTIONS;
 
   const flattenResults = useCallback((data: SpotifySearchResult): SpotifyRef[] => {
     const flat: SpotifyRef[] = [];
@@ -67,7 +68,6 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
           setResults([]);
           setShowDropdown(false);
           setSearched(true);
-          // Silent fallback — switch to manual on API error
           setMode("manual");
         })
         .finally(() => {
@@ -90,15 +90,27 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  function isAlreadySelected(item: SpotifyRef): boolean {
+    return spotifyItems.some(
+      (s) => s.spotifyId === item.spotifyId && s.type === item.type
+    );
+  }
+
   function handleSelect(item: SpotifyRef) {
-    onChange({ ...item, source: "spotify" });
+    if (isAlreadySelected(item) || atMax) return;
+    onChange([...value, { ...item, source: "spotify" }]);
     setQuery("");
     setShowDropdown(false);
     setResults([]);
   }
 
-  function handleRemove() {
-    onChange(undefined);
+  function handleRemove(index: number) {
+    const next = value.filter((_, i) => i !== index);
+    onChange(next);
+  }
+
+  function handleRemoveAll() {
+    onChange([]);
     setQuery("");
     setManualName("");
     setManualArtist("");
@@ -123,56 +135,25 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
   function handleManualNameChange(name: string) {
     setManualName(name);
     if (name.trim()) {
-      onChange({
+      onChange([{
         source: "manual",
         name: name.trim(),
         ...(manualArtist.trim() ? { artistName: manualArtist.trim() } : {}),
-      });
+      }]);
     } else {
-      onChange(undefined);
+      onChange([]);
     }
   }
 
   function handleManualArtistChange(artist: string) {
     setManualArtist(artist);
     if (manualName.trim()) {
-      onChange({
+      onChange([{
         source: "manual",
         name: manualName.trim(),
         ...(artist.trim() ? { artistName: artist.trim() } : {}),
-      });
+      }]);
     }
-  }
-
-  // If a spotify value is selected, show chip
-  if (value && value.source === "spotify" && mode === "spotify") {
-    return (
-      <div className={styles.container}>
-        <div className={styles.chip} data-testid="spotify-chip">
-          {value.imageUrl && isValidSpotifyImage(value.imageUrl) && (
-            <img
-              className={styles.chipImage}
-              src={value.imageUrl}
-              alt={value.name}
-            />
-          )}
-          <div className={styles.chipInfo}>
-            <div className={styles.chipName}>{value.name}</div>
-            {value.artistName && (
-              <div className={styles.chipSubtext}>{value.artistName}</div>
-            )}
-          </div>
-          <button
-            type="button"
-            className={styles.chipRemove}
-            onClick={handleRemove}
-            aria-label="Remove audio"
-          >
-            x
-          </button>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -181,14 +162,14 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
         <button
           type="button"
           className={mode === "spotify" ? styles.tabButtonActive : styles.tabButton}
-          onClick={() => { setMode("spotify"); onChange(undefined); setManualName(""); setManualArtist(""); }}
+          onClick={() => { setMode("spotify"); handleRemoveAll(); }}
         >
           Search Spotify
         </button>
         <button
           type="button"
           className={mode === "manual" ? styles.tabButtonActive : styles.tabButton}
-          onClick={() => { setMode("manual"); onChange(undefined); setQuery(""); setResults([]); setShowDropdown(false); }}
+          onClick={() => { setMode("manual"); handleRemoveAll(); setResults([]); setShowDropdown(false); }}
         >
           Enter manually
         </button>
@@ -196,47 +177,95 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
 
       {mode === "spotify" ? (
         <div>
-          <input
-            className={styles.searchInput}
-            type="text"
-            placeholder="Search for artists, albums, or tracks..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onFocus={() => { if (results.length > 0) setShowDropdown(true); }}
-            aria-label="Search Spotify"
-          />
-          {showDropdown && (
-            <div className={styles.dropdown} role="listbox" data-testid="spotify-dropdown">
-              {loading && <div className={styles.loading}>Searching...</div>}
-              {!loading && searched && results.length === 0 && (
-                <div className={styles.noResults}>No results found</div>
-              )}
-              {results.map((item, index) => (
-                <button
-                  key={`${item.spotifyId}-${item.type}`}
-                  type="button"
-                  role="option"
-                  aria-selected={index === activeIndex}
-                  className={index === activeIndex ? styles.resultItemActive : styles.resultItem}
-                  onClick={() => handleSelect(item)}
-                >
-                  {item.imageUrl && isValidSpotifyImage(item.imageUrl) ? (
-                    <img className={styles.thumbnail} src={item.imageUrl} alt="" />
-                  ) : (
-                    <div className={styles.thumbnailPlaceholder}>&#9835;</div>
-                  )}
-                  <div className={styles.resultInfo}>
-                    <div className={styles.resultName}>{item.name}</div>
-                    {item.artistName && (
-                      <div className={styles.resultSubtext}>{item.artistName}</div>
+          {spotifyItems.length > 0 && (
+            <div className={styles.chipList} data-testid="spotify-chip-list">
+              {spotifyItems.map((item, idx) => {
+                const originalIndex = value.indexOf(item);
+                return (
+                  <div key={`${item.spotifyId}-${item.type}`} className={styles.chip} data-testid="spotify-chip">
+                    {item.imageUrl && isValidSpotifyImage(item.imageUrl) && (
+                      <img
+                        className={styles.chipImage}
+                        src={item.imageUrl}
+                        alt={item.name}
+                      />
                     )}
+                    <div className={styles.chipInfo}>
+                      <div className={styles.chipName}>{item.name}</div>
+                      {item.artistName && (
+                        <div className={styles.chipSubtext}>{item.artistName}</div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.chipRemove}
+                      onClick={() => handleRemove(originalIndex)}
+                      aria-label={`Remove ${item.name}`}
+                    >
+                      x
+                    </button>
                   </div>
-                  <span className={styles.typeBadge}>{item.type}</span>
-                </button>
-              ))}
-              <div className={styles.attribution}>Powered by Spotify</div>
+                );
+              })}
             </div>
+          )}
+
+          {!atMax && (
+            <>
+              <input
+                className={styles.searchInput}
+                type="text"
+                placeholder={spotifyItems.length > 0
+                  ? `Add another (${spotifyItems.length}/${MAX_AUDIO_SELECTIONS})...`
+                  : "Search for artists, albums, or tracks..."}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onFocus={() => { if (results.length > 0) setShowDropdown(true); }}
+                aria-label="Search Spotify"
+              />
+              {showDropdown && (
+                <div className={styles.dropdown} role="listbox" data-testid="spotify-dropdown">
+                  {loading && <div className={styles.loading}>Searching...</div>}
+                  {!loading && searched && results.length === 0 && (
+                    <div className={styles.noResults}>No results found</div>
+                  )}
+                  {results.map((item, index) => {
+                    const selected = isAlreadySelected(item);
+                    return (
+                      <button
+                        key={`${item.spotifyId}-${item.type}`}
+                        type="button"
+                        role="option"
+                        aria-selected={index === activeIndex}
+                        className={index === activeIndex ? styles.resultItemActive : styles.resultItem}
+                        onClick={() => handleSelect(item)}
+                        disabled={selected}
+                        style={selected ? { opacity: 0.5 } : undefined}
+                      >
+                        {item.imageUrl && isValidSpotifyImage(item.imageUrl) ? (
+                          <img className={styles.thumbnail} src={item.imageUrl} alt="" />
+                        ) : (
+                          <div className={styles.thumbnailPlaceholder}>&#9835;</div>
+                        )}
+                        <div className={styles.resultInfo}>
+                          <div className={styles.resultName}>{item.name}</div>
+                          {item.artistName && (
+                            <div className={styles.resultSubtext}>{item.artistName}</div>
+                          )}
+                        </div>
+                        <span className={styles.typeBadge}>{item.type}</span>
+                      </button>
+                    );
+                  })}
+                  <div className={styles.attribution}>Powered by Spotify</div>
+                </div>
+              )}
+            </>
+          )}
+
+          {atMax && (
+            <div className={styles.maxMessage}>Maximum of {MAX_AUDIO_SELECTIONS} selections reached</div>
           )}
         </div>
       ) : (

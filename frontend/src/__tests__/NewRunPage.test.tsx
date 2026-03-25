@@ -222,7 +222,7 @@ describe("NewRunPage Spotify integration", () => {
 
     const callArg = mockCreateRun.mock.calls[0][0];
     expect(callArg).toHaveProperty("audio");
-    expect(callArg.audio).toEqual(sampleSpotifyResults[0]);
+    expect(callArg.audio).toEqual([sampleSpotifyResults[0]]);
   });
 
   it("remove button clears Spotify selection", async () => {
@@ -240,7 +240,7 @@ describe("NewRunPage Spotify integration", () => {
     });
 
     // Click remove button
-    fireEvent.click(screen.getByLabelText("Remove audio"));
+    fireEvent.click(screen.getByLabelText("Remove Daft Punk"));
 
     // Chip should be gone, search input should be back
     expect(screen.queryByTestId("spotify-chip")).not.toBeInTheDocument();
@@ -284,10 +284,10 @@ describe("NewRunPage Spotify integration", () => {
 
     const callArg = mockCreateRun.mock.calls[0][0];
     expect(callArg).toHaveProperty("audio");
-    expect(callArg.audio).toEqual({
+    expect(callArg.audio).toEqual([{
       source: "manual",
       name: "My Running Playlist",
       artistName: "Various Artists",
-    });
+    }]);
   });
 });
