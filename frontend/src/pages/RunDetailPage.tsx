@@ -214,11 +214,13 @@ export function RunDetailPage() {
               <div className={styles.section}>
                 <div className={styles.sectionLabel}>Audio</div>
                 <div className={styles.audioDisplay}>
-                  {run.audio.imageUrl && (
+                  {run.audio.imageUrl?.startsWith("https://i.scdn.co/") && (
                     <img
                       className={styles.audioArtwork}
                       src={run.audio.imageUrl}
                       alt={run.audio.name}
+                      width={200}
+                      height={200}
                     />
                   )}
                   <div>
@@ -226,14 +228,16 @@ export function RunDetailPage() {
                     {run.audio.artistName && (
                       <div className={styles.audioArtist}>{run.audio.artistName}</div>
                     )}
-                    <a
-                      href={run.audio.spotifyUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={styles.spotifyLink}
-                    >
-                      Open in Spotify
-                    </a>
+                    {run.audio.spotifyUrl?.startsWith("https://open.spotify.com/") && (
+                      <a
+                        href={run.audio.spotifyUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.spotifyLink}
+                      >
+                        Open in Spotify
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>

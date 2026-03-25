@@ -22,7 +22,7 @@ const sampleResults: SpotifyRef[] = [
     spotifyId: "artist1",
     type: "artist",
     name: "Dua Lipa",
-    imageUrl: "https://example.com/dua.jpg",
+    imageUrl: "https://i.scdn.co/image/dua.jpg",
     spotifyUrl: "https://open.spotify.com/artist/artist1",
   },
   {
@@ -31,7 +31,7 @@ const sampleResults: SpotifyRef[] = [
     type: "album",
     name: "Future Nostalgia",
     artistName: "Dua Lipa",
-    imageUrl: "https://example.com/fn.jpg",
+    imageUrl: "https://i.scdn.co/image/fn.jpg",
     spotifyUrl: "https://open.spotify.com/album/album1",
   },
   {

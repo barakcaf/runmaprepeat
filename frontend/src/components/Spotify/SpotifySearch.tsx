@@ -4,6 +4,9 @@ import type { SpotifySearchResult } from "../../api/client";
 import type { AudioRef, SpotifyRef } from "../../types/audio";
 import styles from "./SpotifySearch.module.css";
 
+const DEBOUNCE_MS = 300;
+const isValidSpotifyImage = (url: string) => url.startsWith("https://i.scdn.co/");
+
 interface SpotifySearchProps {
   value: AudioRef | undefined;
   onChange: (audio: AudioRef | undefined) => void;
@@ -40,17 +43,19 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query.trim()) {
+    if (query.trim().length < 2) {
       setResults([]);
       setShowDropdown(false);
       setSearched(false);
       return;
     }
+    const abortController = new AbortController();
     debounceRef.current = setTimeout(() => {
       setLoading(true);
       setSearched(false);
       searchSpotify(query)
         .then((data) => {
+          if (abortController.signal.aborted) return;
           const flat = flattenResults(data);
           setResults(flat);
           setShowDropdown(true);
@@ -58,16 +63,20 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
           setSearched(true);
         })
         .catch(() => {
+          if (abortController.signal.aborted) return;
           setResults([]);
           setShowDropdown(false);
           setSearched(true);
           // Silent fallback — switch to manual on API error
           setMode("manual");
         })
-        .finally(() => setLoading(false));
-    }, 300);
+        .finally(() => {
+          if (!abortController.signal.aborted) setLoading(false);
+        });
+    }, DEBOUNCE_MS);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      abortController.abort();
     };
   }, [query, flattenResults]);
 
@@ -140,7 +149,7 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
     return (
       <div className={styles.container}>
         <div className={styles.chip} data-testid="spotify-chip">
-          {value.imageUrl && (
+          {value.imageUrl && isValidSpotifyImage(value.imageUrl) && (
             <img
               className={styles.chipImage}
               src={value.imageUrl}
@@ -212,7 +221,7 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
                   className={index === activeIndex ? styles.resultItemActive : styles.resultItem}
                   onClick={() => handleSelect(item)}
                 >
-                  {item.imageUrl ? (
+                  {item.imageUrl && isValidSpotifyImage(item.imageUrl) ? (
                     <img className={styles.thumbnail} src={item.imageUrl} alt="" />
                   ) : (
                     <div className={styles.thumbnailPlaceholder}>&#9835;</div>
@@ -226,6 +235,7 @@ export function SpotifySearch({ value, onChange }: SpotifySearchProps) {
                   <span className={styles.typeBadge}>{item.type}</span>
                 </button>
               ))}
+              <div className={styles.attribution}>Powered by Spotify</div>
             </div>
           )}
         </div>

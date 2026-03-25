@@ -105,6 +105,8 @@
 
 .audioArtwork {
   max-width: 200px;
+  aspect-ratio: 1;
+  max-height: 200px;
   border-radius: 4px;
   object-fit: cover;
 }
