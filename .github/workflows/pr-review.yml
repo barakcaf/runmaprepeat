@@ -125,6 +125,10 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     if: github.actor != 'dependabot[bot]'
+    outputs:
+      has_findings: ${{ steps.run-review.outputs.has_findings }}
+      findings_json: ${{ steps.run-review.outputs.findings_json }}
+      findings_summary: ${{ steps.run-review.outputs.findings_summary }}
 
     steps:
       - name: Checkout
@@ -147,6 +151,7 @@ jobs:
         run: pip install boto3
 
       - name: Run AI review
+        id: run-review
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -154,3 +159,74 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python .github/scripts/ai_review.py
+
+  # ================================================================
+  # Job 3: Trigger auto-fix via @claude comment
+  # ================================================================
+  trigger-fix:
+    name: Trigger Auto-Fix
+    needs: review
+    runs-on: ubuntu-latest
+    if: >
+      needs.review.outputs.has_findings == 'true' &&
+      github.actor != 'dependabot[bot]' &&
+      !contains(github.event.pull_request.labels.*.name, 'no-auto-fix')
+
+    steps:
+      - name: Check cycle count
+        id: cycle
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Check existing @claude fix comments to count cycles
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number }
+            );
+            const fixComments = comments.filter(c =>
+              c.user.login === 'github-actions[bot]' &&
+              c.body.includes('@claude') &&
+              c.body.includes('[ai-fix-cycle-')
+            );
+            const cycle = fixComments.length + 1;
+            core.setOutput('cycle', cycle);
+            core.setOutput('skip', cycle > 2 ? 'true' : 'false');
+            console.log(`Fix cycle: ${cycle}/2 (skip: ${cycle > 2})`);
+
+      - name: Post max-cycles comment
+        if: steps.cycle.outputs.skip == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '⚠️ **Auto-Fix Limit Reached**\n\nMax 2 fix cycles completed. Remaining findings require manual intervention.',
+            });
+
+      - name: Post @claude fix comment
+        if: steps.cycle.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        env:
+          FINDINGS_SUMMARY: ${{ needs.review.outputs.findings_summary }}
+        with:
+          script: |
+            const cycle = '${{ steps.cycle.outputs.cycle }}';
+            const findings = process.env.FINDINGS_SUMMARY;
+            const body = `@claude [ai-fix-cycle-${cycle}] Fix the following code review findings. ` +
+              `Read .github/prompts/fix.md for detailed instructions.\n\n` +
+              `**Rules:**\n` +
+              `- Read the PR description to understand the feature context before fixing\n` +
+              `- Fix the source code, NOT the tests\n` +
+              `- Run tests after each fix (see CLAUDE.md for commands)\n` +
+              `- If a fix breaks tests, revert it\n` +
+              `- Only keep fixes where all tests still pass\n` +
+              `- Commit message must include [ai-fix-cycle-${cycle}]\n\n` +
+              `**Findings (cycle ${cycle}/2):**\n\n${findings}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body,
+            });
