@@ -31,7 +31,7 @@ export function RunDetailPage() {
         setRun(data);
         setEditTitle(data.title ?? "");
         setEditNotes(data.notes ?? "");
-        setEditDate(data.runDate.slice(0, 10));
+        setEditDate(new Date(data.runDate).toLocaleDateString("sv-SE"));
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
