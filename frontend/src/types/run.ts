@@ -39,7 +39,7 @@ export interface UpdateRunPayload {
   distanceMeters?: number;
   durationSeconds?: number;
   elevationGainMeters?: number;
-  audio?: AudioRef;
+  audio?: AudioRef | null;
 }
 
 export interface CompleteRunPayload {
