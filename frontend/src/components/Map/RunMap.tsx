@@ -72,13 +72,15 @@ export function RunMap({ onRouteChange }: RunMapProps) {
       clearTimeout(debounceTimerRef.current);
     }
 
+    // Always increment to invalidate any in-flight or pending requests
+    const requestId = ++snapRequestIdRef.current;
+
     if (waypoints.length < 2) {
       setIsSnapping(false);
       return;
     }
 
     setIsSnapping(true);
-    const requestId = ++snapRequestIdRef.current;
 
     debounceTimerRef.current = setTimeout(() => {
       calculateRoute(waypoints)
