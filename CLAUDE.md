@@ -55,3 +55,9 @@ infra/        AWS CDK (Python)
 - `$CODEBUILD_SRC_DIR` required in buildspec.yml — `cd` doesn't persist between phases
 - Cognito `sub` from JWT is the userId for all user-scoped DynamoDB operations
 - Lambda handlers must return `{ statusCode, headers, body }` — body is always a JSON string
+
+## Deployment Rules
+- **NEVER apply fixes directly to production** (Lambda env vars, configs, etc.)
+- **ALL changes go through IaC (CDK)** — commit, PR, review, merge, deploy via pipeline
+- Hotfixes are not hotfixes — they get overwritten on next deploy and create drift
+- If something is broken in prod, fix it in code and deploy through the pipeline
