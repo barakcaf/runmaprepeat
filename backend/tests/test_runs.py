@@ -168,7 +168,7 @@ def test_options_returns_200() -> None:
 
 @patch("handlers.runs.get_profile")
 @patch("handlers.runs.create_run")
-def test_create_run_with_audio_music_artist_album(mock_create: object, mock_profile: object) -> None:
+def test_create_run_with_audio_spotify(mock_create: object, mock_profile: object) -> None:
     mock_profile.return_value = {"weightKg": 70}
     mock_create.side_effect = lambda uid, rid, data: {"runId": rid, **data}
     event = _make_event(
@@ -180,24 +180,25 @@ def test_create_run_with_audio_music_artist_album(mock_create: object, mock_prof
             "distanceMeters": 5000,
             "durationSeconds": 1800,
             "audio": {
-                "type": "music",
-                "subtype": "artist",
-                "format": "album",
+                "source": "spotify",
+                "spotifyId": "0TnOYISbd1XYRBk9myaseg",
+                "type": "artist",
                 "name": "Dua Lipa",
-                "detail": "Future Nostalgia",
+                "spotifyUrl": "https://open.spotify.com/artist/0TnOYISbd1XYRBk9myaseg",
+                "artistName": "Dua Lipa",
             },
         },
     )
     response = handler(event, None)
     assert response["statusCode"] == 201
     body = json.loads(response["body"])
-    assert body["audio"]["type"] == "music"
+    assert body["audio"]["source"] == "spotify"
     assert body["audio"]["name"] == "Dua Lipa"
 
 
 @patch("handlers.runs.get_profile")
 @patch("handlers.runs.create_run")
-def test_create_run_with_audio_podcast(mock_create: object, mock_profile: object) -> None:
+def test_create_run_with_audio_manual(mock_create: object, mock_profile: object) -> None:
     mock_profile.return_value = {"weightKg": 70}
     mock_create.side_effect = lambda uid, rid, data: {"runId": rid, **data}
     event = _make_event(
@@ -209,41 +210,58 @@ def test_create_run_with_audio_podcast(mock_create: object, mock_profile: object
             "distanceMeters": 3000,
             "durationSeconds": 1200,
             "audio": {
-                "type": "podcast",
-                "name": "Huberman Lab",
-                "detail": "Ep. 234",
+                "source": "manual",
+                "name": "My Running Playlist",
             },
         },
     )
     response = handler(event, None)
     assert response["statusCode"] == 201
     body = json.loads(response["body"])
-    assert body["audio"]["type"] == "podcast"
+    assert body["audio"]["source"] == "manual"
 
 
-def test_create_run_with_invalid_audio_type() -> None:
+def test_create_run_with_invalid_audio_source() -> None:
     event = _make_event(
         "POST",
         "/runs",
         body={
             "status": "completed",
             "runDate": "2024-01-15T08:00:00Z",
-            "audio": {"type": "audiobook", "name": "Something"},
+            "audio": {"source": "apple_music", "name": "Something"},
         },
     )
     response = handler(event, None)
     assert response["statusCode"] == 400
-    assert "audio.type" in json.loads(response["body"])["error"]
+    assert "audio.source" in json.loads(response["body"])["error"]
 
 
-def test_create_run_with_invalid_audio_missing_name() -> None:
+def test_create_run_with_spotify_audio_missing_fields() -> None:
     event = _make_event(
         "POST",
         "/runs",
         body={
             "status": "completed",
             "runDate": "2024-01-15T08:00:00Z",
-            "audio": {"type": "music", "subtype": "playlist"},
+            "audio": {"source": "spotify", "name": "Dua Lipa"},
+        },
+    )
+    response = handler(event, None)
+    assert response["statusCode"] == 400
+    error = json.loads(response["body"])["error"]
+    assert "audio.spotifyId" in error
+    assert "audio.type" in error
+    assert "audio.spotifyUrl" in error
+
+
+def test_create_run_with_manual_audio_missing_name() -> None:
+    event = _make_event(
+        "POST",
+        "/runs",
+        body={
+            "status": "completed",
+            "runDate": "2024-01-15T08:00:00Z",
+            "audio": {"source": "manual"},
         },
     )
     response = handler(event, None)
@@ -251,31 +269,20 @@ def test_create_run_with_invalid_audio_missing_name() -> None:
     assert "audio.name" in json.loads(response["body"])["error"]
 
 
-def test_create_run_with_invalid_music_subtype() -> None:
+@patch("handlers.runs.get_profile")
+@patch("handlers.runs.create_run")
+def test_create_run_with_audio_no_source_passes_validation(mock_create: object, mock_profile: object) -> None:
+    """Audio without source field passes validation (backwards compatible)."""
+    mock_profile.return_value = None
+    mock_create.side_effect = lambda uid, rid, data: {"runId": rid, **data}
     event = _make_event(
         "POST",
         "/runs",
         body={
-            "status": "completed",
+            "status": "planned",
             "runDate": "2024-01-15T08:00:00Z",
-            "audio": {"type": "music", "subtype": "genre", "name": "Rock"},
+            "audio": {"name": "Some playlist"},
         },
     )
     response = handler(event, None)
-    assert response["statusCode"] == 400
-    assert "audio.subtype" in json.loads(response["body"])["error"]
-
-
-def test_create_run_with_invalid_artist_format() -> None:
-    event = _make_event(
-        "POST",
-        "/runs",
-        body={
-            "status": "completed",
-            "runDate": "2024-01-15T08:00:00Z",
-            "audio": {"type": "music", "subtype": "artist", "format": "single", "name": "Drake"},
-        },
-    )
-    response = handler(event, None)
-    assert response["statusCode"] == 400
-    assert "audio.format" in json.loads(response["body"])["error"]
+    assert response["statusCode"] == 201

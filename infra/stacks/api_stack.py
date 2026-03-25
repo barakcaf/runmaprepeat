@@ -7,6 +7,7 @@ from aws_cdk import (
     aws_apigateway as apigw,
     aws_cognito as cognito,
     aws_dynamodb as dynamodb,
+    aws_iam as iam,
     aws_lambda as _lambda,
     aws_location as location,
 )
@@ -68,6 +69,30 @@ class ApiStack(Stack):
             timeout=Duration.seconds(10),
         )
 
+        # Spotify search handler
+        spotify_search_fn = _lambda.Function(
+            self,
+            "SpotifySearchHandler",
+            runtime=_lambda.Runtime.PYTHON_3_12,
+            architecture=_lambda.Architecture.ARM_64,
+            handler="handlers.spotify_search.handler",
+            code=_lambda.Code.from_asset("../backend"),
+            environment={},
+            timeout=Duration.seconds(10),
+        )
+        spotify_search_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["ssm:GetParameter", "ssm:GetParameters"],
+                resources=[
+                    Stack.of(self).format_arn(
+                        service="ssm",
+                        resource="parameter",
+                        resource_name="runmaprepeat/spotify/*",
+                    )
+                ],
+            )
+        )
+
         # Grant DynamoDB access
         table.grant_read_write_data(profile_fn)
         table.grant_read_write_data(runs_fn)
@@ -121,6 +146,12 @@ class ApiStack(Stack):
         stats_resource = api.root.add_resource("stats")
         stats_integration = apigw.LambdaIntegration(stats_fn)
         stats_resource.add_method("GET", stats_integration, **auth_method_options)
+
+        # Spotify search routes
+        spotify_resource = api.root.add_resource("spotify")
+        spotify_search_resource = spotify_resource.add_resource("search")
+        spotify_integration = apigw.LambdaIntegration(spotify_search_fn)
+        spotify_search_resource.add_method("GET", spotify_integration, **auth_method_options)
 
         # Place Index for location search
         self.place_index = location.CfnPlaceIndex(
