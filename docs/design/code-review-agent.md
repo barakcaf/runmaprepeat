@@ -250,15 +250,122 @@ jobs:
 
 ---
 
-## 3. Implementation Plan
+## 3. Loki-Driven Review Flow (Current Workflow)
+
+Before implementing the automated GitHub Actions bot, the project already uses a proven manual-trigger flow through Loki (AI assistant). This workflow was validated on PRs #64 and #65 (Spotify integration) and should be documented as the **primary review path** until the automated bot is built.
+
+### 3.1 Flow Diagram
+
+```
+Developer opens PR(s)
+    │
+    ▼
+Developer asks Loki: "Review the open PRs"
+    │
+    ▼
+Loki spawns parallel sub-agents (one per PR)
+    │
+    ├── Sub-agent 1: Clone repo → checkout PR → full code review
+    │     └── Structured output: Summary, Findings (severity), Verdict
+    │
+    ├── Sub-agent 2: Clone repo → checkout PR → full code review
+    │     └── Structured output: Summary, Findings (severity), Verdict
+    │
+    ▼
+Loki receives results, posts inline comments on each PR
+    │
+    ├── PR #N: Review comment (COMMENT event) with:
+    │     ├── Body: summary + highlight + finding counts
+    │     └── Inline comments: one per finding, with severity + fix suggestion
+    │
+    ▼
+Developer reviews comments, asks Loki to fix
+    │
+    ▼
+Loki spawns coding agents (one per PR, parallel)
+    │
+    ├── Agent 1: Checkout branch → implement fixes → run tests → commit + push
+    ├── Agent 2: Checkout branch → implement fixes → run tests → commit + push
+    │
+    ▼
+Developer reviews updated PRs → merge
+```
+
+### 3.2 Review Prompt Structure
+
+Each sub-agent receives a structured review task covering:
+
+| Category | What to check |
+|----------|---------------|
+| **Security** | Credential handling, input validation, CORS, XSS, open redirects, IAM permissions |
+| **Error handling** | Missing try/catch, unhandled edge cases, error propagation |
+| **Code quality** | Typing, naming, DRY, structure, dead code |
+| **AWS best practices** | Lambda patterns, cold start, IAM scope, CDK constructs |
+| **Test coverage** | Missing test cases, edge cases, test quality |
+| **Performance** | Unnecessary re-renders, bundle size, network calls, memory |
+| **Compliance** | Third-party ToS (e.g., Spotify branding), accessibility |
+
+### 3.3 Severity Levels
+
+| Level | Meaning | Action |
+|-------|---------|--------|
+| 🔴 CRITICAL | Security vulnerability or data loss risk | Must fix before merge |
+| 🟠 HIGH | Bug, missing error handling, or security hardening gap | Must fix before merge |
+| 🟡 MEDIUM | Code quality, minor bugs, missing validation, UX issues | Should fix (can be follow-up) |
+| 🟢 LOW | Style, minor improvements, optional optimizations | Nice to have |
+| 📝 NIT | Trivial observations, naming, formatting | Ignore or fix opportunistically |
+
+### 3.4 Comment Format (GitHub PR Review)
+
+Each inline comment follows this format:
+
+```
+🟠 **HIGH: Short description**
+
+Explanation of the issue with context.
+
+**Fix:**
+\`\`\`python
+# Suggested code change
+\`\`\`
+```
+
+The review body includes:
+- **Highlights** (what's done well)
+- **Finding counts** by severity
+- "See inline comments for details"
+
+### 3.5 Fix Flow
+
+Coding agents receive the full list of review findings organized by priority. They:
+
+1. Checkout the PR branch in an isolated worktree
+2. Implement all HIGH and MEDIUM fixes
+3. Run the existing test suite to verify no regressions
+4. Fix any test failures caused by the changes
+5. Commit with a descriptive message (e.g., `fix: address PR #64 code review findings`)
+6. Push to the PR branch
+
+### 3.6 Limitations of Manual Flow
+
+| Limitation | Mitigation |
+|------------|------------|
+| Requires Loki to be prompted | Automated flow (Phase 1 below) removes this |
+| Review posted as repo owner (can't "Request Changes" on own PR) | Posts as COMMENT instead — same visibility |
+| No incremental re-review on push | Re-run manually after fixes |
+| No automatic trigger on PR open | Developer asks when ready |
+
+---
+
+## 4. Automated GitHub Actions Bot (Implementation Plan)
 
 ### Phase 1: MVP (1-2 hours)
 - [ ] Create IAM role for GitHub OIDC federation with Bedrock invoke permissions
 - [ ] Write `ai_review.py` script (~200 lines):
   - Fetch PR diff and changed files via PyGithub
-  - Build prompt from template
+  - Build prompt from template (using severity levels and categories from §3.2-3.3)
   - Call Bedrock Claude Sonnet
-  - Parse response and post as PR review comments
+  - Parse response and post as PR review comments (using format from §3.4)
 - [ ] Add workflow file `.github/workflows/ai-review.yml`
 - [ ] Test on a real PR
 
@@ -276,7 +383,7 @@ jobs:
 
 ---
 
-## 4. Cost Estimate
+## 5. Cost Estimate
 
 For a personal project with ~5-10 PRs/week, averaging 500 lines changed per PR:
 
@@ -291,7 +398,7 @@ This is effectively free for a personal project.
 
 ---
 
-## 5. Risks and Mitigations
+## 6. Risks and Mitigations
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
@@ -306,7 +413,7 @@ This is effectively free for a personal project.
 
 ---
 
-## 6. Alternatives Considered
+## 7. Alternatives Considered
 
 ### Option A: GitHub Copilot Code Review (Built-in)
 - **Pros**: Zero setup, native UX
@@ -328,7 +435,7 @@ Best fit for a small personal project: minimal code, full control, no external d
 
 ---
 
-## 7. Future Enhancements (Not in Scope)
+## 8. Future Enhancements (Not in Scope)
 
 - **Codebase indexing**: Embed the full codebase in a vector store for richer context (only worthwhile if the project grows significantly)
 - **Learning from feedback**: Track which comments get thumbs up/down and tune prompts
