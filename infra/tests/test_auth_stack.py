@@ -12,7 +12,8 @@ def test_user_pool_created() -> None:
     template.resource_count_is("AWS::Cognito::UserPool", 1)
 
 
-def test_self_signup_disabled() -> None:
+def test_self_signup_enabled() -> None:
+    """Registration is open — users can sign up with email verification."""
     app = cdk.App()
     stack = AuthStack(app, "TestAuth")
     template = assertions.Template.from_stack(stack)
@@ -21,7 +22,7 @@ def test_self_signup_disabled() -> None:
         "AWS::Cognito::UserPool",
         {
             "AdminCreateUserConfig": {
-                "AllowAdminCreateUserOnly": True,
+                "AllowAdminCreateUserOnly": False,
             },
         },
     )
