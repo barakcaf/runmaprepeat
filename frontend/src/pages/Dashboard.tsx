@@ -127,7 +127,7 @@ export function Dashboard() {
             </div>
             {run.audio && (
               <div className={shared.audioLine}>
-                {run.audio.type === "music" ? "🎵" : "🎙️"}{" "}
+                {"🎵"}{" "}
                 {formatAudio(run.audio)}
               </div>
             )}

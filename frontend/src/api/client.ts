@@ -1,5 +1,6 @@
 import { fetchAuthSession } from "@aws-amplify/auth";
 import type { Run, CreateRunPayload, UpdateRunPayload, CompleteRunPayload } from "../types/run";
+import type { SpotifyRef } from "../types/audio";
 import type { Profile } from "../types/profile";
 import type { Stats } from "../types/stats";
 
@@ -92,4 +93,16 @@ export function completeRun(id: string, data: CompleteRunPayload): Promise<Run> 
 
 export function getStats(): Promise<Stats> {
   return request<Stats>("/stats");
+}
+
+export interface SpotifySearchResult {
+  artists?: SpotifyRef[];
+  albums?: SpotifyRef[];
+  tracks?: SpotifyRef[];
+}
+
+export function searchSpotify(query: string, types?: string[]): Promise<SpotifySearchResult> {
+  const params = new URLSearchParams({ q: query });
+  if (types?.length) params.append('type', types.join(','));
+  return request<SpotifySearchResult>(`/spotify/search?${params}`);
 }

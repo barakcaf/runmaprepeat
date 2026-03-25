@@ -7,7 +7,7 @@ import {
   formatCalories,
   formatAudio,
 } from "../utils/format";
-import type { MusicAudio, PodcastAudio } from "../types/run";
+import type { SpotifyRef, ManualAudioRef } from "../types/audio";
 
 describe("formatDuration", () => {
   it("formats seconds under an hour as MM:SS", () => {
@@ -65,56 +65,43 @@ describe("formatCalories", () => {
 });
 
 describe("formatAudio", () => {
-  it("formats podcast with episode", () => {
-    const audio: PodcastAudio = {
-      type: "podcast",
-      name: "Huberman Lab",
-      detail: "Ep. 234",
+  it("formats spotify ref with artist name", () => {
+    const audio: SpotifyRef = {
+      source: "spotify",
+      spotifyId: "abc123",
+      type: "track",
+      name: "Levitating",
+      artistName: "Dua Lipa",
+      imageUrl: "https://example.com/img.jpg",
+      spotifyUrl: "https://open.spotify.com/track/abc123",
     };
-    expect(formatAudio(audio)).toBe("Huberman Lab - Ep. 234");
+    expect(formatAudio(audio)).toBe("Levitating - Dua Lipa");
   });
 
-  it("formats podcast without episode", () => {
-    const audio: PodcastAudio = { type: "podcast", name: "Huberman Lab" };
-    expect(formatAudio(audio)).toBe("Huberman Lab");
-  });
-
-  it("formats music artist with album", () => {
-    const audio: MusicAudio = {
-      type: "music",
-      subtype: "artist",
-      format: "album",
+  it("formats spotify ref without artist name", () => {
+    const audio: SpotifyRef = {
+      source: "spotify",
+      spotifyId: "abc123",
+      type: "artist",
       name: "Dua Lipa",
-      detail: "Future Nostalgia",
-    };
-    expect(formatAudio(audio)).toBe("Dua Lipa - Album: Future Nostalgia");
-  });
-
-  it("formats music artist with mix", () => {
-    const audio: MusicAudio = {
-      type: "music",
-      subtype: "artist",
-      format: "mix",
-      name: "Dua Lipa",
-      detail: "Club Mix",
-    };
-    expect(formatAudio(audio)).toBe("Dua Lipa - Mix: Club Mix");
-  });
-
-  it("formats music artist without detail", () => {
-    const audio: MusicAudio = {
-      type: "music",
-      subtype: "artist",
-      format: "album",
-      name: "Dua Lipa",
+      imageUrl: null,
+      spotifyUrl: "https://open.spotify.com/artist/abc123",
     };
     expect(formatAudio(audio)).toBe("Dua Lipa");
   });
 
-  it("formats playlist", () => {
-    const audio: MusicAudio = {
-      type: "music",
-      subtype: "playlist",
+  it("formats manual ref with artist name", () => {
+    const audio: ManualAudioRef = {
+      source: "manual",
+      name: "Future Nostalgia",
+      artistName: "Dua Lipa",
+    };
+    expect(formatAudio(audio)).toBe("Future Nostalgia - Dua Lipa");
+  });
+
+  it("formats manual ref without artist name", () => {
+    const audio: ManualAudioRef = {
+      source: "manual",
       name: "Running Hits",
     };
     expect(formatAudio(audio)).toBe("Running Hits");

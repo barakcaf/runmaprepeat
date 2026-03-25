@@ -210,11 +210,43 @@ export function RunDetailPage() {
               )}
             </div>
 
-            {run.audio && (
+            {run.audio && run.audio.source === "spotify" && (
+              <div className={styles.section}>
+                <div className={styles.sectionLabel}>Audio</div>
+                <div className={styles.audioDisplay}>
+                  {run.audio.imageUrl?.startsWith("https://i.scdn.co/") && (
+                    <img
+                      className={styles.audioArtwork}
+                      src={run.audio.imageUrl}
+                      alt={run.audio.name}
+                      width={200}
+                      height={200}
+                    />
+                  )}
+                  <div>
+                    <div className={styles.sectionValue}>{run.audio.name}</div>
+                    {run.audio.artistName && (
+                      <div className={styles.audioArtist}>{run.audio.artistName}</div>
+                    )}
+                    {run.audio.spotifyUrl?.startsWith("https://open.spotify.com/") && (
+                      <a
+                        href={run.audio.spotifyUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.spotifyLink}
+                      >
+                        Open in Spotify
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {run.audio && run.audio.source === "manual" && (
               <div className={styles.section}>
                 <div className={styles.sectionLabel}>Audio</div>
                 <div className={styles.sectionValue}>
-                  {run.audio.type === "music" ? "🎵" : "🎙️"}{" "}
                   {formatAudio(run.audio)}
                 </div>
               </div>
