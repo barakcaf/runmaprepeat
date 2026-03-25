@@ -1,9 +1,15 @@
-import { render, screen, fireEvent, act } from "@testing-library/react";
-import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { RunMap } from "../components/Map/RunMap";
 
 type MapEventHandler = (e: unknown) => void;
 type MarkerEventHandler = () => void;
+
+const mockCalculateRoute = vi.fn();
+
+vi.mock("../api/client", () => ({
+  calculateRoute: (...args: unknown[]) => mockCalculateRoute(...args),
+}));
 
 let mapClickHandler: MapEventHandler | null = null;
 let mapLoadHandler: MapEventHandler | null = null;
@@ -112,10 +118,17 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
   mapClickHandler = null;
   mapLoadHandler = null;
   createdMarkers.length = 0;
   createdPopups.length = 0;
+  mockCalculateRoute.mockReset();
+  mockCalculateRoute.mockRejectedValue(new Error("not mocked"));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 function triggerMapLoad() {
@@ -293,5 +306,135 @@ describe("RunMap", () => {
     expect(createdPopups.length).toBe(2);
     // First popup should have been removed
     expect(createdPopups[0].popup.remove).toHaveBeenCalled();
+  });
+
+  it("calls calculateRoute API after adding 2 waypoints", async () => {
+    mockCalculateRoute.mockResolvedValue({
+      geometry: [[34.78, 32.08], [34.785, 32.085], [34.79, 32.09]],
+      distanceMeters: 1500,
+    });
+
+    render(<RunMap />);
+    triggerMapLoad();
+
+    addWaypointAt(34.78, 32.08);
+    addWaypointAt(34.79, 32.09);
+
+    // Advance past debounce
+    act(() => { vi.advanceTimersByTime(350); });
+
+    await waitFor(() => {
+      expect(mockCalculateRoute).toHaveBeenCalledWith([
+        [34.78, 32.08],
+        [34.79, 32.09],
+      ]);
+    });
+  });
+
+  it("does not call calculateRoute with fewer than 2 waypoints", () => {
+    render(<RunMap />);
+    triggerMapLoad();
+
+    addWaypointAt(34.78, 32.08);
+
+    act(() => { vi.advanceTimersByTime(350); });
+
+    expect(mockCalculateRoute).not.toHaveBeenCalled();
+  });
+
+  it("shows snapping indicator while route is calculating", async () => {
+    let resolveRoute: (v: unknown) => void;
+    mockCalculateRoute.mockReturnValue(new Promise((r) => { resolveRoute = r; }));
+
+    render(<RunMap />);
+    triggerMapLoad();
+
+    addWaypointAt(34.78, 32.08);
+    addWaypointAt(34.79, 32.09);
+
+    act(() => { vi.advanceTimersByTime(350); });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("route-snapping-indicator")).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      resolveRoute!({
+        geometry: [[34.78, 32.08], [34.79, 32.09]],
+        distanceMeters: 1500,
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("route-snapping-indicator")).not.toBeInTheDocument();
+    });
+  });
+
+  it("falls back to haversine on API failure", async () => {
+    mockCalculateRoute.mockRejectedValue(new Error("API down"));
+
+    render(<RunMap />);
+    triggerMapLoad();
+
+    addWaypointAt(34.78, 32.08);
+    addWaypointAt(34.79, 32.09);
+
+    act(() => { vi.advanceTimersByTime(350); });
+
+    await waitFor(() => {
+      expect(mockCalculateRoute).toHaveBeenCalled();
+    });
+
+    // Should still show distance (haversine fallback) and no snapping indicator
+    await waitFor(() => {
+      expect(screen.queryByTestId("route-snapping-indicator")).not.toBeInTheDocument();
+    });
+  });
+
+  it("debounces rapid waypoint additions", () => {
+    mockCalculateRoute.mockResolvedValue({
+      geometry: [[1, 1], [2, 2], [3, 3]],
+      distanceMeters: 3000,
+    });
+
+    render(<RunMap />);
+    triggerMapLoad();
+
+    addWaypointAt(34.78, 32.08);
+    addWaypointAt(34.79, 32.09);
+
+    // Advance only 100ms, then add another point
+    act(() => { vi.advanceTimersByTime(100); });
+    addWaypointAt(34.80, 32.10);
+
+    // Advance past debounce from last addition
+    act(() => { vi.advanceTimersByTime(350); });
+
+    // Should have been called only once (with 3 points), not twice
+    expect(mockCalculateRoute).toHaveBeenCalledTimes(1);
+    expect(mockCalculateRoute).toHaveBeenCalledWith([
+      [34.78, 32.08],
+      [34.79, 32.09],
+      [34.80, 32.10],
+    ]);
+  });
+
+  it("updates distance from snapped route response", async () => {
+    mockCalculateRoute.mockResolvedValue({
+      geometry: [[34.78, 32.08], [34.785, 32.085], [34.79, 32.09]],
+      distanceMeters: 1500,
+    });
+
+    render(<RunMap />);
+    triggerMapLoad();
+
+    addWaypointAt(34.78, 32.08);
+    addWaypointAt(34.79, 32.09);
+
+    act(() => { vi.advanceTimersByTime(350); });
+
+    await waitFor(() => {
+      expect(screen.getByText("1.50 km")).toBeInTheDocument();
+    });
   });
 });

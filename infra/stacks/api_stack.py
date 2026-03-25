@@ -163,6 +163,49 @@ class ApiStack(Stack):
         spotify_integration = apigw.LambdaIntegration(spotify_search_fn)
         spotify_search_resource.add_method("GET", spotify_integration, **auth_method_options)
 
+        # Route Calculator for route snapping
+        route_calculator = location.CfnRouteCalculator(
+            self,
+            "RunMapRepeatRouteCalculator",
+            calculator_name="runmaprepeat-routes",
+            data_source="Esri",
+        )
+
+        route_calculator_fn = _lambda.Function(
+            self,
+            "RouteCalculatorHandler",
+            runtime=_lambda.Runtime.PYTHON_3_12,
+            architecture=_lambda.Architecture.ARM_64,
+            handler="handlers.route_calculator.handler",
+            code=_lambda.Code.from_asset("../backend"),
+            environment={
+                "ALLOWED_ORIGIN": allowed_origin,
+                "ROUTE_CALCULATOR_NAME": route_calculator.calculator_name,
+            },
+            timeout=Duration.seconds(10),
+        )
+
+        route_calculator_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["geo:CalculateRoute"],
+                resources=[
+                    Stack.of(self).format_arn(
+                        service="geo",
+                        resource="route-calculator",
+                        resource_name=route_calculator.calculator_name,
+                    )
+                ],
+            )
+        )
+
+        # Routes API resource
+        routes_resource = api.root.add_resource("routes")
+        routes_calculate_resource = routes_resource.add_resource("calculate")
+        routes_integration = apigw.LambdaIntegration(route_calculator_fn)
+        routes_calculate_resource.add_method(
+            "POST", routes_integration, **auth_method_options
+        )
+
         # Place Index for location search
         self.place_index = location.CfnPlaceIndex(
             self,
