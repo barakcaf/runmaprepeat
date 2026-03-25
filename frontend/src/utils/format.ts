@@ -1,4 +1,4 @@
-import type { Audio } from "../types/run";
+import type { AudioRef } from "../types/audio";
 
 export function formatDuration(seconds: number): string {
   const hrs = Math.floor(seconds / 3600);
@@ -42,19 +42,16 @@ export function formatCalories(cal: number): string {
   return `${cal.toLocaleString("en-US")} kcal`;
 }
 
-export function formatAudio(audio: Audio): string {
-  if (audio.type === "podcast") {
-    return audio.detail
-      ? `${audio.name} - ${audio.detail}`
-      : audio.name;
-  }
-  if (audio.subtype === "playlist") {
+export function formatAudio(audio: AudioRef): string {
+  if (audio.source === "spotify") {
+    if (audio.artistName) {
+      return `${audio.name} - ${audio.artistName}`;
+    }
     return audio.name;
   }
-  // artist
-  const label = audio.format === "album" ? "Album" : "Mix";
-  if (audio.detail) {
-    return `${audio.name} - ${label}: ${audio.detail}`;
+  // manual
+  if (audio.artistName) {
+    return `${audio.name} - ${audio.artistName}`;
   }
   return audio.name;
 }

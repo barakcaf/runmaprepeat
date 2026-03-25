@@ -2,8 +2,10 @@ import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { createRun } from "../api/client";
 import { RunMap } from "../components/Map/RunMap";
+import { SpotifySearch } from "../components/Spotify/SpotifySearch";
 import { calculateRouteDistance, formatDistance } from "../utils/distance";
-import type { Audio, Coordinate, CreateRunPayload } from "../types/run";
+import type { AudioRef } from "../types/audio";
+import type { Coordinate, CreateRunPayload } from "../types/run";
 import shared from "../styles/shared.module.css";
 import styles from "../styles/NewRunPage.module.css";
 
@@ -41,11 +43,7 @@ export function NewRunPage() {
     setDistanceMeters(calculateRouteDistance(coords));
   }, []);
 
-  const [audioType, setAudioType] = useState<"music" | "podcast">("music");
-  const [musicSubtype, setMusicSubtype] = useState<"artist" | "playlist">("artist");
-  const [audioName, setAudioName] = useState("");
-  const [audioDetail, setAudioDetail] = useState("");
-  const [artistFormat, setArtistFormat] = useState<"album" | "mix">("album");
+  const [audio, setAudio] = useState<AudioRef | undefined>(undefined);
 
   function parseDuration(input: string): number | null {
     if (!input.trim()) return null;
@@ -54,31 +52,6 @@ export function NewRunPage() {
     if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
     if (parts.length === 2) return parts[0] * 60 + parts[1];
     return null;
-  }
-
-  function buildAudio(): Audio | undefined {
-    if (!audioName.trim()) return undefined;
-    if (audioType === "podcast") {
-      return {
-        type: "podcast",
-        name: audioName.trim(),
-        ...(audioDetail.trim() ? { detail: audioDetail.trim() } : {}),
-      };
-    }
-    if (musicSubtype === "playlist") {
-      return {
-        type: "music",
-        subtype: "playlist",
-        name: audioName.trim(),
-      };
-    }
-    return {
-      type: "music",
-      subtype: "artist",
-      format: artistFormat,
-      name: audioName.trim(),
-      ...(audioDetail.trim() ? { detail: audioDetail.trim() } : {}),
-    };
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -100,7 +73,7 @@ export function NewRunPage() {
       ...(route.length >= 2 ? { route, distanceMeters } : {}),
       ...(status === "completed" && durationSeconds ? { durationSeconds } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
-      audio: buildAudio(),
+      ...(audio ? { audio } : {}),
     };
 
     try {
@@ -208,133 +181,7 @@ export function NewRunPage() {
 
         <div className={styles.audioSection}>
           <div className={styles.audioSectionTitle}>Audio</div>
-          <div className={shared.formGroup}>
-            <div className={shared.toggleGroup}>
-              <button
-                type="button"
-                className={audioType === "music" ? shared.toggleOptionActive : shared.toggleOption}
-                onClick={() => setAudioType("music")}
-              >
-                🎵 Music
-              </button>
-              <button
-                type="button"
-                className={audioType === "podcast" ? shared.toggleOptionActive : shared.toggleOption}
-                onClick={() => setAudioType("podcast")}
-              >
-                🎙️ Podcast
-              </button>
-            </div>
-          </div>
-
-          {audioType === "music" && (
-            <div className={shared.formGroup}>
-              <div className={shared.toggleGroup}>
-                <button
-                  type="button"
-                  className={musicSubtype === "artist" ? shared.toggleOptionActive : shared.toggleOption}
-                  onClick={() => setMusicSubtype("artist")}
-                >
-                  Artist
-                </button>
-                <button
-                  type="button"
-                  className={musicSubtype === "playlist" ? shared.toggleOptionActive : shared.toggleOption}
-                  onClick={() => setMusicSubtype("playlist")}
-                >
-                  Playlist
-                </button>
-              </div>
-            </div>
-          )}
-
-          {audioType === "music" && musicSubtype === "artist" && (
-            <>
-              <div className={shared.formGroup}>
-                <label className={shared.formLabel} htmlFor="artistName">Artist</label>
-                <input
-                  id="artistName"
-                  className={shared.formInput}
-                  type="text"
-                  placeholder="Artist name"
-                  value={audioName}
-                  onChange={(e) => setAudioName(e.target.value)}
-                />
-              </div>
-              <div className={shared.formGroup}>
-                <div className={shared.toggleGroup}>
-                  <button
-                    type="button"
-                    className={artistFormat === "album" ? shared.toggleOptionActive : shared.toggleOption}
-                    onClick={() => setArtistFormat("album")}
-                  >
-                    Album
-                  </button>
-                  <button
-                    type="button"
-                    className={artistFormat === "mix" ? shared.toggleOptionActive : shared.toggleOption}
-                    onClick={() => setArtistFormat("mix")}
-                  >
-                    Mix
-                  </button>
-                </div>
-              </div>
-              {artistFormat === "album" && (
-                <div className={shared.formGroup}>
-                  <label className={shared.formLabel} htmlFor="albumName">Album</label>
-                  <input
-                    id="albumName"
-                    className={shared.formInput}
-                    type="text"
-                    placeholder="Album name"
-                    value={audioDetail}
-                    onChange={(e) => setAudioDetail(e.target.value)}
-                  />
-                </div>
-              )}
-            </>
-          )}
-
-          {audioType === "music" && musicSubtype === "playlist" && (
-            <div className={shared.formGroup}>
-              <label className={shared.formLabel} htmlFor="playlistName">Playlist</label>
-              <input
-                id="playlistName"
-                className={shared.formInput}
-                type="text"
-                placeholder="Playlist name"
-                value={audioName}
-                onChange={(e) => setAudioName(e.target.value)}
-              />
-            </div>
-          )}
-
-          {audioType === "podcast" && (
-            <>
-              <div className={shared.formGroup}>
-                <label className={shared.formLabel} htmlFor="podcastName">Podcast</label>
-                <input
-                  id="podcastName"
-                  className={shared.formInput}
-                  type="text"
-                  placeholder="Podcast name"
-                  value={audioName}
-                  onChange={(e) => setAudioName(e.target.value)}
-                />
-              </div>
-              <div className={shared.formGroup}>
-                <label className={shared.formLabel} htmlFor="episode">Episode</label>
-                <input
-                  id="episode"
-                  className={shared.formInput}
-                  type="text"
-                  placeholder="Episode (optional)"
-                  value={audioDetail}
-                  onChange={(e) => setAudioDetail(e.target.value)}
-                />
-              </div>
-            </>
-          )}
+          <SpotifySearch value={audio} onChange={setAudio} />
         </div>
 
         <div className={shared.formGroup}>
