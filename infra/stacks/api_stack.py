@@ -77,9 +77,13 @@ class ApiStack(Stack):
             architecture=_lambda.Architecture.ARM_64,
             handler="handlers.spotify_search.handler",
             code=_lambda.Code.from_asset("../backend"),
-            environment={},
+            environment={
+                "ALLOWED_ORIGIN": "https://runmaprepeat.com",
+            },
             timeout=Duration.seconds(10),
         )
+        # SSM params use the default aws/ssm KMS key, so no explicit
+        # kms:Decrypt permission is needed — IAM grants it automatically.
         spotify_search_fn.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["ssm:GetParameter", "ssm:GetParameters"],

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 
 from data.spotify import SpotifyError, search
@@ -14,7 +15,7 @@ logger.setLevel(logging.INFO)
 
 CORS_HEADERS = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": os.environ.get("ALLOWED_ORIGIN", "*"),
     "Access-Control-Allow-Headers": "Content-Type,Authorization",
     "Access-Control-Allow-Methods": "GET,OPTIONS",
 }
@@ -41,6 +42,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     query = params.get("q", "").strip()
     if not query:
         return _error(400, "q parameter is required")
+
+    if len(query) > 256:
+        return _error(400, "Query too long (max 256 chars)")
 
     type_param = params.get("type", _DEFAULT_TYPES)
     types = [t.strip() for t in type_param.split(",") if t.strip() in _VALID_TYPES]
