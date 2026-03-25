@@ -1,22 +1,49 @@
-# Design Doc: Auto-Fix Agent for Code Review Findings
+# Design Doc: Auto-Fix Agent — Full Implementation
 
 **Issue:** [#73](https://github.com/barakcaf/runmaprepeat/issues/73)
 **Depends on:** [#57](https://github.com/barakcaf/runmaprepeat/issues/57) (AI Code Review Agent)
 **Author:** Loki (AI assistant)
 **Date:** 2026-03-25
-**Status:** Draft
+**Status:** Draft — Pending Review
 
 ---
 
-## Executive Summary
+## 1. Executive Summary
 
-A third job in the PR workflow that uses Claude Code CLI (backed by Bedrock Opus 4.6) to automatically fix code review findings. It reads project steering docs, applies fixes, runs tests, and pushes — triggering a re-review that auto-resolves fixed comments and posts "✅ Ready for Merge" when clean.
+After the AI code review agent posts findings on a PR, an auto-fix agent automatically attempts to resolve them. It uses the official `anthropics/claude-code-action@v1` GitHub Action with Amazon Bedrock (Opus 4.6) via OIDC federation — no Anthropic API key required. The fix agent reads project steering docs (CLAUDE.md, AGENTS.md), edits code, runs tests, and pushes a fix commit that triggers a re-review cycle.
 
 ---
 
-## 1. Flow
+## 2. Architecture Overview
 
-### 1.1 End-to-End Flow
+### 2.1 Component Diagram
+
+```
+┌─────────────────────────────────────────────────────────┐
+│              GitHub Actions Runner (ubuntu-latest)       │
+│                                                         │
+│  ┌──────────┐    ┌──────────┐    ┌───────────────────┐  │
+│  │ Job 1:   │    │ Job 2:   │    │ Job 3:            │  │
+│  │ test     │───▶│ review   │───▶│ fix               │  │
+│  │          │    │          │    │                   │  │
+│  │ vitest   │    │ custom   │    │ claude-code-action│  │
+│  │ pytest   │    │ script + │    │ @v1               │  │
+│  │ cdk test │    │ bedrock  │    │ + bedrock OIDC    │  │
+│  └──────────┘    └──────────┘    └─────────┬─────────┘  │
+│                                            │            │
+└────────────────────────────────────────────┼────────────┘
+                                             │
+                    ┌────────────────────────┐│
+                    │                        ▼│
+              ┌─────┴──────┐          ┌──────────────┐
+              │  Amazon    │          │   GitHub     │
+              │  Bedrock   │          │   API        │
+              │  Opus 4.6  │          │   (push +    │
+              │  (OIDC)    │          │    comment)  │
+              └────────────┘          └──────────────┘
+```
+
+### 2.2 End-to-End Flow
 
 ```
 PR opened / push
@@ -24,168 +51,338 @@ PR opened / push
          ▼
 ┌─────────────────────┐
 │  Job 1: test        │
-│  frontend/backend/  │
-│  CDK tests          │
+│  All suites pass?   │
 └─────────┬───────────┘
           │
-     Tests pass?
-      │       │
-     No      Yes
-      │       ▼
-      │  ┌──────────────────┐
-      │  │  Job 2: review   │
-      │  │  (AI Code Review)│
-      │  └─────────┬────────┘
-      │            │
-      │     Has CRITICAL/HIGH/MEDIUM findings?
-      │      │              │
-      │     No             Yes
-      │      │              │
-      │      ▼              ▼
-      │  ✅ Ready      ┌───────────────────┐
-      │  for Merge     │  Job 3: fix       │
-      │                │  (Auto-Fix Agent) │
-      │                └─────────┬─────────┘
-      │                          │
-      │                Claude Code CLI:
-      │                1. Read findings from review
-      │                2. Read steering docs
-      │                3. Fix code
-      │                4. Run tests
-      │                5. Tests pass? → Push commit
-      │                   Tests fail? → Revert, log
-      │                          │
-      │                          ▼
-      │                Push triggers new cycle:
-      │                test → review → auto-resolve
-      │                          │
-      │                   Cycle ≤ 2?
-      │                    │       │
-      │                   Yes      No
-      │                    │       │
-      │                    ▼       ▼
-      │              Continue   Stop, notify
-      │              cycle      human via TG
-      ▼
-   ❌ Stop
-```
-
-### 1.2 Cycle Management
-
-The fix agent and review agent form a feedback loop. To prevent infinite loops:
-
-```
-Cycle 1: push → test → review (finds issues) → fix → push
-Cycle 2: push → test → review (checks again) → fix → push
-Cycle 3: push → test → review → STOP (max cycles reached, notify human)
-```
-
-**Cycle tracking** via commit message convention:
-- Fix agent commits: `fix: auto-resolve review findings [ai-fix-cycle-N]`
-- Review job parses HEAD commit message — if `[ai-fix-cycle-2]` → skip fix job
-- Simple, no external state needed
-
-### 1.3 Sequence Diagram
-
-```mermaid
-sequenceDiagram
-    participant GH as GitHub
-    participant T as Test Job
-    participant R as Review Job
-    participant F as Fix Job
-    participant CC as Claude Code CLI
-    participant BR as Bedrock (Opus 4.6)
-    participant TG as Telegram
-
-    GH->>T: pull_request event
-    T->>T: Run frontend/backend/CDK tests
-    T-->>R: Tests pass → trigger review
-    R->>BR: Review code (Opus 4.6)
-    BR-->>R: Findings (JSON)
-    R->>GH: Post inline comments + summary
-    R-->>F: has_findings=true → trigger fix
-
-    F->>GH: Fetch review comments
-    F->>CC: claude --print "Fix these findings..."
-    CC->>BR: Agentic loop (read/edit/test)
-    BR-->>CC: Responses
-    CC->>CC: Edit files, run tests
-    CC-->>F: Fixes applied, tests pass
-
-    alt Tests pass
-        F->>GH: git commit + push
-        F-->>TG: "Fixed 5/7 findings, tests pass"
-        Note over GH,R: New push triggers cycle 2
-    else Tests fail
-        F->>F: Revert changes
-        F-->>TG: "Could not auto-fix, human review needed"
-    end
+     No ──┤──── Yes
+     │         │
+     ▼         ▼
+   ❌ Stop  ┌──────────────────┐
+            │  Job 2: review   │
+            │  (AI Code Review)│
+            └─────────┬────────┘
+                      │
+              Has findings?
+               │          │
+              No         Yes
+               │          │
+               ▼          ▼
+          ✅ Ready   ┌───────────────────────────────┐
+          for Merge  │  Job 3: fix                   │
+                     │                               │
+                     │  1. Check cycle count          │
+                     │     (max 2, from commit msg)   │
+                     │                               │
+                     │  2. claude-code-action@v1      │
+                     │     - use_bedrock: true        │
+                     │     - OIDC auth (same role)    │
+                     │     - Reads CLAUDE.md          │
+                     │     - Model: Opus 4.6          │
+                     │     - Prompt: fix findings     │
+                     │     - Can edit + run tests     │
+                     │                               │
+                     │  3. Push fix commit            │
+                     │     (via GitHub App token)     │
+                     │                               │
+                     │  4. Telegram notification      │
+                     └───────────────┬───────────────┘
+                                     │
+                                     ▼
+                           Push triggers new cycle:
+                           test → review → resolve
+                                     │
+                              Cycle ≤ 2?
+                               │       │
+                              Yes      No
+                               │       │
+                               ▼       ▼
+                         Continue    Stop + alert
+                         cycle       human via TG
 ```
 
 ---
 
-## 2. Architecture
+## 3. Key Technical Decision: Why `claude-code-action` over CLI
 
-### 2.1 Components
+| Factor | `claude-code-action@v1` | Raw Claude Code CLI |
+|--------|------------------------|-------------------|
+| Bedrock OIDC | Native support (`use_bedrock: "true"`) | Manual env vars (`CLAUDE_CODE_USE_BEDROCK=1`) |
+| GitHub integration | Built-in (push, comment, file ops) | Manual git commands |
+| Steering docs | Auto-reads CLAUDE.md | Auto-reads CLAUDE.md |
+| Agentic loop | Full (edit, shell, tests) | Full (edit, shell, tests) |
+| Install step | None (pre-packaged action) | `npm i -g @anthropic-ai/claude-code` |
+| Maintenance | Anthropic maintains it | We maintain wrapper script |
+| Progress tracking | Visual checkboxes on PR | None |
+| Structured output | JSON results as GH Action outputs | Manual parsing |
 
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| Fix job | `.github/workflows/pr-review.yml` (job 3) | Orchestrates Claude Code CLI |
-| Fix script | `.github/scripts/ai_fix.py` | Fetches findings, builds prompt, invokes Claude Code, pushes |
-| Claude Code CLI | Installed at runtime (`npm i -g @anthropic-ai/claude-code`) | Agentic code editing with Bedrock |
-| Steering docs | `CLAUDE.md`, `AGENTS.md`, `WORKFLOW.md` | Project conventions for Claude Code |
+**Decision: Use `claude-code-action@v1`** — less code to maintain, native Bedrock OIDC, built-in GitHub integration.
 
-### 2.2 Workflow: Updated `pr-review.yml`
+---
+
+## 4. Implementation Details
+
+### 4.1 GitHub App Token (Critical)
+
+**Problem:** `GITHUB_TOKEN` commits do NOT trigger new workflow runs. This is a GitHub security feature to prevent infinite loops. But our cycle depends on fix commit → re-trigger test → review.
+
+**Solution:** Use a GitHub App to generate tokens. Commits made with a GitHub App token DO trigger workflows.
+
+#### GitHub App Setup
+
+1. Create a GitHub App (one-time, in Barak's GitHub account):
+   - **Name:** `runmaprepeat-autofix` (or similar)
+   - **Permissions:**
+     - Contents: Read & write
+     - Pull requests: Read & write
+     - Metadata: Read-only
+   - **Install on:** `barakcaf/runmaprepeat`
+   
+2. Store credentials as repo secrets:
+   - `APP_ID` — the GitHub App's numeric ID
+   - `APP_PRIVATE_KEY` — the App's private key (PEM format)
+
+3. In the workflow, generate a token:
+   ```yaml
+   - name: Generate GitHub App token
+     id: app-token
+     uses: actions/create-github-app-token@v2
+     with:
+       app-id: ${{ secrets.APP_ID }}
+       private-key: ${{ secrets.APP_PRIVATE_KEY }}
+   ```
+
+**Alternative:** Use a Personal Access Token (PAT). Simpler setup but less secure (broad scope, tied to Barak's account, no expiry management). **GitHub App is recommended.**
+
+### 4.2 Workflow File: Updated `pr-review.yml`
+
+The full workflow with all three jobs:
 
 ```yaml
+name: PR Tests & Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write          # Fix agent needs to push
+  pull-requests: write     # Post reviews and comments
+  checks: write            # Test results
+  id-token: write          # OIDC federation for Bedrock
+
 jobs:
+  # ================================================================
+  # Job 1: Run all test suites
+  # ================================================================
   test:
     name: Run Tests
-    # ... existing test job ...
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend tests
+        id: frontend-tests
+        working-directory: frontend
+        run: npm test -- --run 2>&1 | tee /tmp/frontend-test-output.txt
+        continue-on-error: true
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          pip install -r requirements.txt 2>/dev/null || true
+          pip install pytest moto boto3
+
+      - name: Run backend tests
+        id: backend-tests
+        working-directory: backend
+        run: pytest --tb=short 2>&1 | tee /tmp/backend-test-output.txt
+        continue-on-error: true
+
+      - name: Install CDK dependencies
+        working-directory: infra
+        run: pip install -r requirements.txt
+
+      - name: Run CDK tests
+        id: cdk-tests
+        working-directory: infra
+        run: pytest --tb=short 2>&1 | tee /tmp/cdk-test-output.txt
+        continue-on-error: true
+
+      - name: Post test results on PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const frontend = '${{ steps.frontend-tests.outcome }}';
+            const backend = '${{ steps.backend-tests.outcome }}';
+            const cdk = '${{ steps.cdk-tests.outcome }}';
+            const icon = (s) => s === 'success' ? '✅' : s === 'failure' ? '❌' : '⚠️';
+
+            const body = `## 🧪 Test Results\n\n` +
+              `| Suite | Status |\n|-------|--------|\n` +
+              `| Frontend | ${icon(frontend)} ${frontend} |\n` +
+              `| Backend | ${icon(backend)} ${backend} |\n` +
+              `| CDK | ${icon(cdk)} ${cdk} |\n`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body,
+            });
+
+      - name: Notify via Telegram
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          PR_AUTHOR="${{ github.event.pull_request.user.login }}"
+          FRONTEND="${{ steps.frontend-tests.outcome }}"
+          BACKEND="${{ steps.backend-tests.outcome }}"
+          CDK="${{ steps.cdk-tests.outcome }}"
+
+          MESSAGE="🔍 <b>PR Review Needed</b>: #${PR_NUMBER} — ${PR_TITLE}%0ABy: ${PR_AUTHOR}%0ATests: Frontend=${FRONTEND} Backend=${BACKEND} CDK=${CDK}%0A<a href=\"${PR_URL}\">Review PR</a>"
+
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d chat_id="${TELEGRAM_CHAT_ID}" \
+              -d text="$MESSAGE" \
+              -d parse_mode="HTML" \
+              -d disable_web_page_preview="true"
+          fi
+
+      - name: Gate — fail if any tests failed
+        if: always()
+        run: |
+          if [ "${{ steps.frontend-tests.outcome }}" = "failure" ] || \
+             [ "${{ steps.backend-tests.outcome }}" = "failure" ] || \
+             [ "${{ steps.cdk-tests.outcome }}" = "failure" ]; then
+            echo "❌ One or more test suites failed"
+            exit 1
+          fi
+          echo "✅ All tests passed"
+
+  # ================================================================
+  # Job 2: AI Code Review (only if tests pass)
+  # ================================================================
   review:
     name: AI Code Review
     needs: test
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
     outputs:
-      has_findings: ${{ steps.review.outputs.has_findings }}
-      findings_json: ${{ steps.review.outputs.findings_json }}
-    # ... existing review job, now outputs findings ...
+      has_findings: ${{ steps.run-review.outputs.has_findings }}
+      findings_json: ${{ steps.run-review.outputs.findings_json }}
+      findings_summary: ${{ steps.run-review.outputs.findings_summary }}
 
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install boto3
+
+      - name: Run AI review
+        id: run-review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO_NAME: ${{ github.repository }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python .github/scripts/ai_review.py
+
+  # ================================================================
+  # Job 3: Auto-Fix (only if review found issues, max 2 cycles)
+  # ================================================================
   fix:
     name: Auto-Fix Findings
     needs: review
-    if: |
-      needs.review.outputs.has_findings == 'true' &&
-      !contains(github.event.pull_request.head.sha, '[ai-fix-cycle-2]')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      id-token: write
+    if: >
+      needs.review.outputs.has_findings == 'true' &&
+      github.actor != 'dependabot[bot]' &&
+      !contains(github.event.pull_request.labels.*.name, 'no-auto-fix')
 
     steps:
+      # --- Cycle detection ---
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 5
 
       - name: Check cycle count
         id: cycle
         run: |
           LAST_MSG=$(git log -1 --pretty=%s)
+          echo "Last commit: $LAST_MSG"
+
           if [[ "$LAST_MSG" == *"[ai-fix-cycle-2]"* ]]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-            echo "Max fix cycles reached"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "⛔ Max fix cycles (2) reached — stopping"
           elif [[ "$LAST_MSG" == *"[ai-fix-cycle-1]"* ]]; then
-            echo "cycle=2" >> $GITHUB_OUTPUT
-            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "cycle=2" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "🔄 Fix cycle 2/2"
           else
-            echo "cycle=1" >> $GITHUB_OUTPUT
-            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "cycle=1" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "🔄 Fix cycle 1/2"
           fi
 
+      - name: Notify max cycles reached
+        if: steps.cycle.outputs.skip == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          MESSAGE="⚠️ <b>Auto-Fix Limit Reached</b> — PR #${PR_NUMBER}%0AMax 2 fix cycles completed. Remaining findings need manual review.%0A<a href=\"${PR_URL}\">View PR</a>"
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d chat_id="${TELEGRAM_CHAT_ID}" \
+              -d text="$MESSAGE" \
+              -d parse_mode="HTML" \
+              -d disable_web_page_preview="true"
+          fi
+
+      # --- AWS + GitHub App auth ---
       - name: Configure AWS credentials (OIDC)
         if: steps.cycle.outputs.skip != 'true'
         uses: aws-actions/configure-aws-credentials@v4
@@ -193,306 +390,416 @@ jobs:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
           aws-region: us-east-1
 
-      - name: Setup Node.js
+      - name: Generate GitHub App token
         if: steps.cycle.outputs.skip != 'true'
-        uses: actions/setup-node@v4
+        id: app-token
+        uses: actions/create-github-app-token@v2
         with:
-          node-version: '22'
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
-      - name: Setup Python
+      # --- Run Claude Code to fix findings ---
+      - name: Auto-fix with Claude Code
         if: steps.cycle.outputs.skip != 'true'
-        uses: actions/setup-python@v5
+        uses: anthropics/claude-code-action@v1
         with:
-          python-version: '3.12'
+          use_bedrock: "true"
+          prompt: |
+            You are an auto-fix agent. Fix the following code review findings
+            in this repository. After fixing each issue, run the test suites
+            to verify nothing is broken:
 
-      - name: Install Claude Code CLI
-        if: steps.cycle.outputs.skip != 'true'
-        run: npm install -g @anthropic-ai/claude-code
+            - Frontend: cd frontend && npm ci && npm test -- --run
+            - Backend: cd backend && pip install pytest moto boto3 && pytest --tb=short
+            - CDK: cd infra && pip install -r requirements.txt && pytest --tb=short
 
-      - name: Install project dependencies
-        if: steps.cycle.outputs.skip != 'true'
-        run: |
-          cd frontend && npm ci && cd ..
-          cd backend && pip install -r requirements.txt 2>/dev/null || true && pip install pytest moto boto3 && cd ..
-          cd infra && pip install -r requirements.txt && cd ..
+            RULES:
+            - Fix the source code, NOT the tests
+            - If a fix breaks tests, revert that specific fix
+            - Only keep fixes where all tests still pass
+            - Follow the project conventions in CLAUDE.md and AGENTS.md
+            - For CRITICAL findings, add a code comment explaining the fix
 
-      - name: Run fix agent
+            FINDINGS (cycle ${{ steps.cycle.outputs.cycle }}/2):
+
+            ${{ needs.review.outputs.findings_summary }}
+          claude_args: |
+            --model us.anthropic.claude-opus-4-6-v1
+            --max-turns 30
+          timeout_minutes: 15
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          AWS_REGION: us-east-1
+
+      # --- Commit and push fixes ---
+      - name: Push fixes
         if: steps.cycle.outputs.skip != 'true'
         env:
-          CLAUDE_CODE_USE_BEDROCK: "1"
-          ANTHROPIC_MODEL: us.anthropic.claude-opus-4-6-v1
-          AWS_REGION: us-east-1
-          FINDINGS: ${{ needs.review.outputs.findings_json }}
-          CYCLE: ${{ steps.cycle.outputs.cycle }}
-        run: python .github/scripts/ai_fix.py
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          CYCLE="${{ steps.cycle.outputs.cycle }}"
 
-      - name: Notify Telegram
+          # Configure git with App identity
+          git config user.name "runmaprepeat-autofix[bot]"
+          git config user.email "runmaprepeat-autofix[bot]@users.noreply.github.com"
+
+          # Check for changes
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          # Stage, commit, push
+          git add -A
+          git commit -m "fix: auto-resolve review findings [ai-fix-cycle-${CYCLE}]"
+          git push origin HEAD:${{ github.head_ref }}
+          echo "✅ Fix commit pushed (cycle ${CYCLE}/2)"
+
+      # --- Telegram notification ---
+      - name: Notify fix result
         if: always() && steps.cycle.outputs.skip != 'true'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python .github/scripts/ai_fix_notify.py
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          CYCLE="${{ steps.cycle.outputs.cycle }}"
+
+          # Check if we actually pushed changes
+          LAST_MSG=$(git log -1 --pretty=%s)
+          if [[ "$LAST_MSG" == *"[ai-fix-cycle-"* ]]; then
+            STATUS="✅ Fixes pushed"
+          else
+            STATUS="⚠️ No fixes applied"
+          fi
+
+          MESSAGE="🔧 <b>Auto-Fix Agent</b> — PR #${PR_NUMBER} (cycle ${CYCLE}/2)%0A${STATUS}%0A<a href=\"${PR_URL}\">View PR</a>"
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d chat_id="${TELEGRAM_CHAT_ID}" \
+              -d text="$MESSAGE" \
+              -d parse_mode="HTML" \
+              -d disable_web_page_preview="true"
+          fi
 ```
 
-### 2.3 Fix Script: `.github/scripts/ai_fix.py`
+### 4.3 Review Script Changes (`ai_review.py`)
+
+The review script needs to output findings for the fix job. Add these lines at the end of `main()`:
 
 ```python
-"""Auto-fix agent — uses Claude Code CLI to fix review findings."""
-
-import json
-import os
-import subprocess
-import sys
-
-def build_prompt(findings: list[dict], cycle: int) -> str:
-    """Build the prompt for Claude Code."""
-    prompt = (
-        f"You are fixing code review findings (cycle {cycle}/2).\n\n"
-        "For each finding below, fix the issue in the codebase.\n"
-        "After fixing, run the test suites to verify:\n"
-        "  - cd frontend && npm test -- --run\n"
-        "  - cd backend && pytest --tb=short\n"
-        "  - cd infra && pytest --tb=short\n\n"
-        "If a fix breaks tests, revert that specific fix.\n"
-        "Only keep fixes where tests still pass.\n\n"
-        "IMPORTANT: Do not modify test files to make tests pass.\n"
-        "Fix the source code, not the tests.\n\n"
-        "## Findings to fix:\n\n"
-    )
-    for i, f in enumerate(findings, 1):
-        sev = f.get("severity", "MEDIUM")
-        title = f.get("title", "Issue")
-        body = f.get("body", "")
-        file = f.get("file", "")
-        line = f.get("line", "?")
-        suggestion = f.get("suggestion", "")
-
-        prompt += f"### {i}. [{sev}] {title}\n"
-        prompt += f"**File:** `{file}:{line}`\n"
-        prompt += f"**Issue:** {body}\n"
-        if suggestion:
-            prompt += f"**Suggested fix:**\n```\n{suggestion}\n```\n"
-        prompt += "\n"
-
-    return prompt
-
-
-def run_claude_code(prompt: str) -> tuple[bool, str]:
-    """Run Claude Code CLI and return (success, output)."""
-    result = subprocess.run(
-        ["claude", "--print", "--permission-mode", "bypassPermissions", prompt],
-        capture_output=True,
-        text=True,
-        timeout=600,  # 10 minute timeout
-    )
-    return result.returncode == 0, result.stdout + result.stderr
-
-
-def run_tests() -> bool:
-    """Run all test suites, return True if all pass."""
-    suites = [
-        ("frontend", ["npm", "test", "--", "--run"]),
-        ("backend", ["pytest", "--tb=short"]),
-        ("infra", ["pytest", "--tb=short"]),
-    ]
-    for name, cmd in suites:
-        result = subprocess.run(cmd, cwd=name, capture_output=True)
-        if result.returncode != 0:
-            print(f"❌ {name} tests failed")
-            return False
-        print(f"✅ {name} tests passed")
-    return True
-
-
-def git_push(cycle: int) -> bool:
-    """Commit and push fixes."""
-    subprocess.run(["git", "add", "-A"], check=True)
-
-    # Check if there are changes to commit
-    result = subprocess.run(["git", "diff", "--cached", "--quiet"])
-    if result.returncode == 0:
-        print("No changes to commit")
-        return False
-
-    subprocess.run([
-        "git", "commit", "-m",
-        f"fix: auto-resolve review findings [ai-fix-cycle-{cycle}]"
-    ], check=True)
-    subprocess.run(["git", "push"], check=True)
-    return True
-
-
-def main():
-    findings_json = os.environ.get("FINDINGS", "[]")
-    cycle = int(os.environ.get("CYCLE", "1"))
-
-    findings = json.loads(findings_json)
-    if not findings:
-        print("No findings to fix")
-        return
-
-    print(f"Fix agent cycle {cycle}/2 — {len(findings)} findings")
-
-    # Build prompt and run Claude Code
-    prompt = build_prompt(findings, cycle)
-    success, output = run_claude_code(prompt)
-
-    if not success:
-        print(f"Claude Code failed:\n{output[:2000]}")
-        sys.exit(1)
-
-    # Verify tests pass
-    if not run_tests():
-        print("Tests failed after fixes — reverting")
-        subprocess.run(["git", "checkout", "."], check=True)
-        sys.exit(1)
-
-    # Push
-    if git_push(cycle):
-        print(f"Fixes pushed (cycle {cycle}/2)")
-    else:
-        print("No fixes were applied")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-### 2.4 Review Job Changes
-
-The review job needs to output findings for the fix job to consume:
-
-```python
-# At end of main() in ai_review.py, add:
-# Write findings as workflow output
-findings_json = json.dumps(findings)
+# Write findings as GitHub Actions output for fix job
 github_output = os.environ.get("GITHUB_OUTPUT", "")
 if github_output:
     with open(github_output, "a") as f:
-        f.write(f"has_findings={'true' if findings else 'false'}\n")
-        # Escape for multiline output
-        f.write(f"findings_json<<EOF\n{findings_json}\nEOF\n")
+        # Boolean flag: does the fix job need to run?
+        has_actionable = any(
+            finding.get("severity") in ("CRITICAL", "HIGH", "MEDIUM")
+            for finding in findings
+        )
+        f.write(f"has_findings={'true' if has_actionable else 'false'}\n")
+
+        # JSON array of findings (for structured consumption)
+        f.write(f"findings_json<<FINDINGS_EOF\n")
+        f.write(json.dumps(findings, indent=2))
+        f.write(f"\nFINDINGS_EOF\n")
+
+        # Human-readable summary (for claude-code-action prompt)
+        summary_lines = []
+        for i, finding in enumerate(findings, 1):
+            sev = finding.get("severity", "LOW")
+            title = finding.get("title", "Issue")
+            body = finding.get("body", "")
+            file_path = finding.get("file", "")
+            line = finding.get("line", "?")
+            suggestion = finding.get("suggestion", "")
+
+            entry = f"{i}. [{sev}] {title}\n"
+            entry += f"   File: {file_path}:{line}\n"
+            entry += f"   Issue: {body}\n"
+            if suggestion:
+                entry += f"   Suggested fix:\n   {suggestion}\n"
+            summary_lines.append(entry)
+
+        f.write(f"findings_summary<<SUMMARY_EOF\n")
+        f.write("\n".join(summary_lines))
+        f.write(f"\nSUMMARY_EOF\n")
 ```
 
-### 2.5 Auth & Permissions
+### 4.4 Steering Docs
 
-| Resource | Permission | Why |
-|----------|-----------|-----|
-| Bedrock | `bedrock:Converse` + `bedrock:InvokeModel` | Claude Code CLI calls Opus via Bedrock |
-| GitHub (contents) | `write` | Push fix commits to PR branch |
-| GitHub (pull-requests) | `write` | Read review comments |
-| GitHub (id-token) | `write` | OIDC federation for AWS |
+Claude Code Action automatically reads `CLAUDE.md` from the repo root. Our existing `CLAUDE.md` already contains:
 
-Reuses existing `github-actions-ai-review` IAM role — no new infrastructure.
+- Project architecture and tech stack
+- Coding conventions (ARM64, stdlib-only Lambda, etc.)
+- Test requirements (Vitest, pytest, CDK tests)
+- Commit message conventions
+- What NOT to do (no hardcoded secrets, no `node_modules/`, etc.)
 
-### 2.6 Claude Code + Bedrock Configuration
+The auto-fix agent inherits all of this automatically. **No additional steering docs needed.**
 
-Claude Code CLI respects these environment variables:
-
-| Variable | Value | Purpose |
-|----------|-------|---------|
-| `CLAUDE_CODE_USE_BEDROCK` | `1` | Use Bedrock instead of Anthropic API |
-| `ANTHROPIC_MODEL` | `us.anthropic.claude-opus-4-6-v1` | Model to use |
-| `AWS_REGION` | `us-east-1` | Bedrock region |
-
-AWS credentials are provided by the OIDC step — Claude Code picks them up automatically from the environment.
-
-### 2.7 Steering Docs
-
-Claude Code automatically reads these from the repo root:
-- **`CLAUDE.md`** — project-specific instructions, coding conventions
-- **`AGENTS.md`** — agent behavior rules, safety constraints
-- **`WORKFLOW.md`** — PR flow, test requirements, commit conventions
-
-This means the fix agent follows the same rules a human developer would — including test requirements, code style, and safety constraints.
+The prompt in the workflow also explicitly tells the agent:
+- Which test commands to run
+- To fix source code, not tests
+- To revert if tests break
+- To follow CLAUDE.md and AGENTS.md
 
 ---
 
-## 3. Safety & Guardrails
+## 5. Cycle Management
 
-| Guardrail | Implementation |
-|-----------|---------------|
-| **Max 2 fix cycles** | Commit message tag `[ai-fix-cycle-N]`, job checks before running |
-| **Tests must pass** | Fix agent runs all suites after fixing; reverts if tests fail |
-| **No test modification** | Prompt explicitly forbids changing test files |
-| **No force-push** | Regular commits only |
-| **CRITICAL findings** | Fix attempted but always flagged for human in Telegram |
-| **PR branch only** | Job condition checks `github.head_ref` exists (PR context only) |
-| **Timeout** | 10-minute timeout on Claude Code CLI invocation |
-| **Human override** | Adding label `no-auto-fix` skips the fix job |
-| **Revert on failure** | `git checkout .` if tests fail after fixes |
-
-### 3.1 Cycle Detection Detail
+### 5.1 How Cycles Work
 
 ```
-Push (human)           → commit msg: "feat: add spotify search"
-  test → review → fix  → commit msg: "fix: auto-resolve review findings [ai-fix-cycle-1]"
-
-Push (fix agent)       → commit msg contains [ai-fix-cycle-1]
-  test → review → fix  → commit msg: "fix: auto-resolve review findings [ai-fix-cycle-2]"
-
-Push (fix agent)       → commit msg contains [ai-fix-cycle-2]
-  test → review         → fix job SKIPS (max cycles), sends Telegram alert
+                    ┌───────────────────────────────────┐
+                    │         Normal PR Flow             │
+                    │                                   │
+Human pushes ──────▶ test ─▶ review ─▶ findings? ──────┤
+                    │                     │        No   │
+                    │                     │  ┌──────────┘
+                    │                     ▼  ▼
+                    │                   ✅ Ready for Merge
+                    │                     │
+                    │                    Yes (has findings)
+                    │                     │
+                    │                     ▼
+                    │            fix (cycle 1) ──push──┐
+                    │                                  │
+                    │  ┌───────────────────────────────┘
+                    │  │
+                    │  ▼  (push triggers new run)
+                    │  test ─▶ review ─▶ findings? ────┤
+                    │                     │        No   │
+                    │                     │  ┌──────────┘
+                    │                     ▼  ▼
+                    │                   ✅ Ready for Merge
+                    │                     │
+                    │                    Yes (still has findings)
+                    │                     │
+                    │                     ▼
+                    │            fix (cycle 2) ──push──┐
+                    │                                  │
+                    │  ┌───────────────────────────────┘
+                    │  │
+                    │  ▼  (push triggers new run)
+                    │  test ─▶ review ─▶ findings? ────┤
+                    │                     │        No   │
+                    │                     │  ┌──────────┘
+                    │                     ▼  ▼
+                    │                   ✅ Ready for Merge
+                    │                     │
+                    │                    Yes (STILL has findings)
+                    │                     │
+                    │                     ▼
+                    │           fix job SKIPS (cycle > 2)
+                    │           Telegram: "human review needed"
+                    └───────────────────────────────────┘
 ```
+
+### 5.2 Cycle Detection Logic
+
+```
+Read HEAD commit message:
+  - Contains "[ai-fix-cycle-2]" → SKIP fix job entirely
+  - Contains "[ai-fix-cycle-1]" → Run fix job as cycle 2
+  - Neither                      → Run fix job as cycle 1
+```
+
+This is intentionally simple — no external state, no labels to manage, no API calls. The cycle count is embedded in the git history.
+
+### 5.3 Why Not Labels?
+
+Labels require API calls to add/read/remove, can be manually modified causing confusion, and add complexity. Commit messages are:
+- Immutable once pushed
+- Visible in git log
+- Automatically available to the workflow
+- No additional API calls needed
 
 ---
 
-## 4. Design Decisions
+## 6. Authentication & Permissions
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Agent tool | Claude Code CLI + Bedrock | Full agentic capabilities, reads steering docs, runs tests, no Anthropic API key |
-| Cycle limit | 2 rounds | Enough for most fixes, prevents infinite loops |
-| Cycle tracking | Commit message tag | Simple, no external state, visible in git history |
-| Fix scope | All severities attempted | Even CRITICAL should be attempted; human still reviews |
-| Test verification | All suites after fix | Ensures fixes don't break anything |
-| Revert strategy | Full revert on test failure | Conservative — partial fixes risk inconsistency |
-| Push strategy | Regular commit | Force-push would lose review history |
-| Skip label | `no-auto-fix` | Escape hatch for humans |
+### 6.1 Secrets Required
+
+| Secret | Purpose | Already exists? |
+|--------|---------|----------------|
+| `AWS_OIDC_ROLE_ARN` | Bedrock access via OIDC | ✅ Yes |
+| `TELEGRAM_BOT_TOKEN` | Telegram notifications | ✅ Yes |
+| `TELEGRAM_CHAT_ID` | Telegram chat | ✅ Yes |
+| `APP_ID` | GitHub App for push | ❌ New |
+| `APP_PRIVATE_KEY` | GitHub App for push | ❌ New |
+
+### 6.2 IAM Role
+
+Reuse existing `github-actions-ai-review` role. Current permissions already cover Converse + InvokeModel for Claude models. **No IAM changes needed.**
+
+### 6.3 GitHub App Permissions
+
+| Scope | Level | Why |
+|-------|-------|-----|
+| Contents | Read & write | Push fix commits |
+| Pull requests | Read & write | Read findings, post comments |
+| Metadata | Read-only | Required default |
+
+### 6.4 Why GitHub App Token for Push?
+
+GitHub Actions security prevents `GITHUB_TOKEN` commits from triggering new workflow runs. This is intentional to prevent infinite loops. Since our cycle depends on:
+
+```
+fix commit → push → triggers test → review → (maybe another fix)
+```
+
+We need a token that DOES trigger workflows. Options:
+
+| Method | Triggers workflows? | Security | Setup |
+|--------|-------------------|----------|-------|
+| `GITHUB_TOKEN` | ❌ No | Best (scoped to run) | None |
+| Personal Access Token | ✅ Yes | Worse (broad scope, no expiry) | Create PAT, add secret |
+| **GitHub App token** | **✅ Yes** | **Good (scoped, auto-expires)** | **Create App, add secrets** |
+
+**GitHub App is the right choice.** Scoped permissions, auto-expiring tokens, not tied to a personal account.
 
 ---
 
-## 5. Cost Estimate
+## 7. Safety & Guardrails
 
-Claude Code CLI with Opus 4.6, ~5-10 fix runs/week:
+| Guardrail | Implementation | Notes |
+|-----------|---------------|-------|
+| **Max 2 fix cycles** | Commit message tag detection | Prevents infinite loops |
+| **Tests must pass** | Claude Code runs tests; push step checks for changes | No blind pushes |
+| **No test modification** | Prompt instruction + CLAUDE.md convention | Agent told not to edit test files |
+| **No force-push** | Regular `git push` only | Preserves review history |
+| **CRITICAL flagging** | Prompt asks agent to add code comments for CRITICAL fixes | Human always reviews these |
+| **PR branch only** | `pull_request` event context | Never runs on `main` |
+| **Timeout** | `timeout_minutes: 15` on claude-code-action | Kills runaway agent |
+| **Max turns** | `--max-turns 30` | Limits agentic loop iterations |
+| **Human escape hatch** | `no-auto-fix` label skips fix job | Manual override |
+| **Revert on failure** | Agent prompted to revert individual fixes that break tests | Partial fixes are safe |
+| **Token scoping** | GitHub App token scoped to repo + auto-expires | Minimal blast radius |
+
+### 7.1 What If the Fix Agent Introduces Bugs?
+
+1. Agent runs tests → if they fail, fix is reverted before push
+2. Push triggers test job → if tests fail, review doesn't run, fix doesn't run → loop stops
+3. Worst case: fix passes tests but introduces a subtle bug → **that's why "Ready for Merge" requires human approval**, the bot never auto-merges
+
+### 7.2 What If Bedrock Is Down?
+
+- `claude-code-action` step fails
+- Fix job fails (non-zero exit)
+- Telegram notification: "⚠️ No fixes applied"
+- Next human push will trigger a fresh cycle
+- Review from Job 2 already posted — findings are visible regardless
+
+---
+
+## 8. Cost Estimate
+
+### Per Fix Run
+
+| Component | Tokens | Cost |
+|-----------|--------|------|
+| Input (steering docs + code + findings) | ~15-30K | ~$2-5 |
+| Output (edits + test runs + reasoning) | ~5-15K | ~$3-8 |
+| Total per fix run | | **~$5-13** |
+
+### Monthly Estimate (5-10 PRs/week)
+
+| Scenario | Fix runs/month | Monthly cost |
+|----------|---------------|-------------|
+| Most PRs clean (20% need fixes) | 8-16 | $40-200 |
+| Half need fixes | 20-40 | $100-520 |
+| Every PR needs fixes | 40-80 | $200-1000 |
+
+**Note:** Opus 4.6 is expensive for agentic loops. If costs are too high, we can:
+1. Only auto-fix MEDIUM findings (skip CRITICAL/HIGH for human)
+2. Use Sonnet for the fix agent (cheaper, still capable for code edits)
+3. Limit to 1 fix cycle instead of 2
+
+### Combined Monthly (Review + Fix)
 
 | Component | Estimate |
 |-----------|----------|
-| Bedrock tokens per fix run | ~20-50K input + ~5-10K output (agentic loop) |
-| Fix runs per week | 5-10 |
-| Monthly Bedrock cost | **~$30-60/month** (on top of review costs) |
-| GitHub Actions minutes | ~5-10 min per fix run × 10/week = ~100 min/week |
-
-Combined with review agent: **~$50-85/month total** for fully automated PR review + fix.
+| Review agent (Opus) | $15-25 |
+| Fix agent (Opus) | $40-200 |
+| **Total** | **$55-225** |
 
 ---
 
-## 6. Risks & Mitigations
+## 9. Implementation Plan
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Fix introduces new bugs | Medium | High | Tests must pass; revert on failure |
-| Infinite loop | Low | High | Max 2 cycles, commit message tracking |
-| Claude Code CLI unavailable | Low | Low | Fix job fails, review still works, human notified |
-| Bedrock rate limits | Low | Medium | 10-min timeout, sequential execution |
-| Wrong fixes that pass tests | Medium | Medium | CRITICAL always flagged; human reviews before merge |
-| Claude Code misreads steering docs | Low | Medium | Steering docs are well-structured; test verification catches most issues |
-| Cost spikes from long agentic loops | Low | Medium | 10-min timeout, budget alerts |
+### Phase 1: Prerequisites (30 min)
+- [ ] Create GitHub App `runmaprepeat-autofix`
+- [ ] Install on `barakcaf/runmaprepeat`
+- [ ] Store `APP_ID` and `APP_PRIVATE_KEY` as repo secrets
+
+### Phase 2: Review Script Changes (1 hour)
+- [ ] Add `has_findings`, `findings_json`, `findings_summary` outputs to `ai_review.py`
+- [ ] Test output format with a real review run
+
+### Phase 3: Fix Job (2-3 hours)
+- [ ] Add `fix` job to `pr-review.yml` with full configuration
+- [ ] Implement cycle detection
+- [ ] Configure `claude-code-action` with Bedrock OIDC
+- [ ] Add Telegram notifications
+- [ ] Test on a real PR with known findings
+
+### Phase 4: Validation (1 hour)
+- [ ] Verify fix commit triggers re-review cycle
+- [ ] Verify cycle limit (2 max) stops correctly
+- [ ] Verify `no-auto-fix` label skips fix job
+- [ ] Verify Telegram notifications at each stage
+- [ ] Verify "✅ Ready for Merge" after successful fix cycle
 
 ---
 
-## 7. Implementation Plan
+## 10. Alternatives Considered
 
-| Phase | Tasks | Effort |
-|-------|-------|--------|
-| **1: Foundation** | Add `findings_json` output to review job, create `ai_fix.py`, add fix job to workflow | 2-3 hours |
-| **2: Integration** | Test cycle detection, verify Claude Code + Bedrock auth in GH Actions, test revert logic | 1-2 hours |
-| **3: Polish** | Telegram notifications, `no-auto-fix` label support, CRITICAL flagging | 1 hour |
+| Option | Pros | Cons | Verdict |
+|--------|------|------|---------|
+| **claude-code-action + Bedrock** | Official, maintained, native OIDC, full agentic | Needs GitHub App for push | ✅ Selected |
+| Claude Code CLI + Bedrock | More control, simpler auth | Manual git, no progress tracking | Close second |
+| Raw Bedrock Converse API | Cheapest, simplest | No shell, no tests, no steering docs | Too limited |
+| claude-code-action + Anthropic API | Simplest setup | Needs API key, separate billing | Extra credential |
+| Loki-driven (heartbeat) | Most flexible | Not instant, depends on heartbeat timing | Good for CRITICAL |
 
-### Phase 1 Checklist
-- [ ] Update `ai_review.py` to output `has_findings` + `findings_json`
-- [ ] Create `.github/scripts/ai_fix.py`
-- [ ] Add `fix` job to `.github/workflows/pr-review.yml`
-- [ ] Test Claude Code CLI + Bedrock auth in GitHub Actions
-- [ ] Verify cycle detection with commit message tags
-- [ ] Test revert on test failure
+---
+
+## 11. Open Questions
+
+1. **Cost tolerance:** Opus fix runs could be $5-13 each. Is that acceptable, or should we use Sonnet for the fix agent?
+2. **Fix scope:** Should we auto-fix all severities, or only MEDIUM/LOW (leaving CRITICAL/HIGH for humans)?
+3. **GitHub App name:** `runmaprepeat-autofix` or something more generic for future repos?
+4. **Max turns:** 30 seems reasonable for most fixes. Too high? Too low?
+
+---
+
+## Appendix A: Environment Variables Reference
+
+### claude-code-action inputs
+
+| Input | Value | Purpose |
+|-------|-------|---------|
+| `use_bedrock` | `"true"` | Enable Bedrock provider |
+| `prompt` | Findings + instructions | What the agent should do |
+| `claude_args` | `--model ... --max-turns ...` | CLI arguments |
+| `timeout_minutes` | `15` | Max runtime |
+
+### Environment variables
+
+| Variable | Value | Set by |
+|----------|-------|--------|
+| `GITHUB_TOKEN` | App token | `create-github-app-token` step |
+| `AWS_REGION` | `us-east-1` | Explicit in workflow |
+| `AWS_ACCESS_KEY_ID` | (auto) | `configure-aws-credentials` step |
+| `AWS_SECRET_ACCESS_KEY` | (auto) | `configure-aws-credentials` step |
+| `AWS_SESSION_TOKEN` | (auto) | `configure-aws-credentials` step |
+
+### GitHub Actions outputs from review job
+
+| Output | Type | Example |
+|--------|------|---------|
+| `has_findings` | `"true"` / `"false"` | `"true"` |
+| `findings_json` | JSON array | `[{"severity":"HIGH",...}]` |
+| `findings_summary` | Human-readable text | `1. [HIGH] Missing validation...` |
