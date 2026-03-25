@@ -1,20 +1,6 @@
+import type { AudioRef } from "./audio";
+
 export type Coordinate = [number, number]; // [lng, lat] — MapLibre convention
-
-export interface MusicAudio {
-  type: "music";
-  subtype: "artist" | "playlist";
-  name: string;
-  detail?: string;
-  format?: "album" | "mix";
-}
-
-export interface PodcastAudio {
-  type: "podcast";
-  name: string;
-  detail?: string;
-}
-
-export type Audio = MusicAudio | PodcastAudio;
 
 export interface Run {
   runId: string;
@@ -28,7 +14,7 @@ export interface Run {
   durationSeconds?: number;
   elevationGainMeters?: number;
   notes?: string;
-  audio?: Audio;
+  audio?: AudioRef;
   paceSecondsPerKm?: number;
   caloriesBurned?: number;
 }
@@ -42,7 +28,7 @@ export interface CreateRunPayload {
   durationSeconds?: number;
   elevationGainMeters?: number;
   notes?: string;
-  audio?: Audio;
+  audio?: AudioRef;
 }
 
 export interface UpdateRunPayload {
@@ -53,7 +39,7 @@ export interface UpdateRunPayload {
   distanceMeters?: number;
   durationSeconds?: number;
   elevationGainMeters?: number;
-  audio?: Audio;
+  audio?: AudioRef;
 }
 
 export interface CompleteRunPayload {
