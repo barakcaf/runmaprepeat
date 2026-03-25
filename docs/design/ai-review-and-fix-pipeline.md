@@ -41,8 +41,9 @@ PR opened / push / reopened
 │      No      Yes                                            │
 │       │       │                                             │
 │  ✅ Ready     ▼                                             │
-│  Job 3: trigger-fix    Check cycle count (max 2)            │
-│                        Post @claude comment with findings    │
+│  Job 3: trigger-fix    Generate GitHub App token             │
+│                        Check cycle count (max 2)            │
+│                        Post @claude comment (as App bot)    │
 └─────────────────────────────────────────────────────────────┘
                          │
                          ▼ (issue_comment event)
@@ -164,7 +165,7 @@ Amazon Bedrock (Converse API)
 | Secret | Purpose |
 |--------|---------|
 | `AWS_OIDC_ROLE_ARN` | IAM role for Bedrock access (OIDC federated) |
-| `APP_ID` | GitHub App ID for fix agent token generation |
+| `APP_ID` | GitHub App ID — used by both trigger-fix and fix agent |
 | `APP_PRIVATE_KEY` | GitHub App private key |
 | `TELEGRAM_BOT_TOKEN` | Telegram notifications (optional) |
 | `TELEGRAM_CHAT_ID` | Telegram chat target (optional) |
@@ -234,7 +235,7 @@ When new commits are pushed to a PR:
 
 | Guard | How |
 |-------|-----|
-| **Bot-only trigger** | `github.event.comment.user.login == 'github-actions[bot]'` — humans can't trigger |
+| **Bot-only trigger** | `github.event.comment.user.type == 'Bot'` — only bot accounts can trigger, humans can't |
 | **PR-only** | `github.event.issue.pull_request` — ignores issue comments |
 | **Cycle limit** | Max 2 fix cycles counted via comment history |
 | **no-auto-fix label** | Skip fix if PR has `no-auto-fix` label |
@@ -320,6 +321,8 @@ For ~5-10 PRs/week, averaging 500 lines changed per PR:
 - **Battle-tested action** — maintained by Anthropic, handles edge cases we'd have to solve ourselves
 - **Comment-based UX** — findings and fixes are visible in the PR conversation, creating a readable audit trail
 
+**Critical lesson learned: GitHub App token required.** The default `GITHUB_TOKEN` does not fire `issue_comment` events when used to post comments (GitHub's anti-infinite-loop protection). The `trigger-fix` job must use a GitHub App token (`actions/create-github-app-token`) to post the `@claude` comment, otherwise `claude-fix.yml` never triggers. The same App is used by both the trigger and the fix agent.
+
 ### Approach 4: External SaaS (CodeRabbit, Copilot Review) — Not Chosen
 
 **Why not:**
@@ -336,6 +339,7 @@ For ~5-10 PRs/week, averaging 500 lines changed per PR:
 | Review model | Opus 4.6 (Bedrock) | Best reasoning for complex code review |
 | Fix model | Sonnet 4 (Bedrock) | Fast, capable, cost-effective for code changes |
 | Fix mechanism | `claude-code-action` via comment trigger | Zero setup, full PR context, no shell risks |
+| Comment token | GitHub App token (not GITHUB_TOKEN) | GITHUB_TOKEN doesn't fire `issue_comment` events (anti-loop protection) |
 | Auth | OIDC federation (GitHub → AWS) | No long-lived secrets |
 | Cycle limit | 2 rounds | Prevents infinite loops, keeps costs predictable |
 | Merge policy | Bot never approves | Human approval always required |

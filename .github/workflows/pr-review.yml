@@ -173,18 +173,31 @@ jobs:
       !contains(github.event.pull_request.labels.*.name, 'no-auto-fix')
 
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Check cycle count
         id: cycle
         uses: actions/github-script@v7
         with:
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
+            // Get the authenticated user (the App bot)
+            const { data: appUser } = await github.rest.users.getAuthenticated();
+            const appLogin = appUser.login;
+            console.log(`App login: ${appLogin}`);
+
             // Check existing @claude fix comments to count cycles
             const comments = await github.paginate(
               github.rest.issues.listComments,
               { owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number }
             );
             const fixComments = comments.filter(c =>
-              c.user.login === 'github-actions[bot]' &&
+              c.user.login === appLogin &&
               c.body.includes('@claude') &&
               c.body.includes('[ai-fix-cycle-')
             );
@@ -197,6 +210,7 @@ jobs:
         if: steps.cycle.outputs.skip == 'true'
         uses: actions/github-script@v7
         with:
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -211,6 +225,7 @@ jobs:
         env:
           FINDINGS_SUMMARY: ${{ needs.review.outputs.findings_summary }}
         with:
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const cycle = '${{ steps.cycle.outputs.cycle }}';
             const findings = process.env.FINDINGS_SUMMARY;

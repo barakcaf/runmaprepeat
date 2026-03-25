@@ -66,7 +66,37 @@ A personal run tracking web app built with a fully serverless AWS architecture. 
 Every PR is automatically reviewed and fixed by AI agents:
 
 ```
-PR push → Tests (Vitest/pytest/CDK) → AI Review (Opus 4.6) → Auto-Fix (Sonnet 4) → Re-review
+┌─────────────────────────────────────────────────────────────────────┐
+│  pr-review.yml (pull_request trigger)                               │
+│                                                                     │
+│  ┌──────────┐    ┌──────────────┐    ┌─────────────┐               │
+│  │  Tests    │───▶│  AI Review   │───▶│ Trigger Fix │               │
+│  │ Vitest   │    │  Opus 4.6    │    │ (App Token) │               │
+│  │ pytest   │    │  (Bedrock)   │    │             │               │
+│  │ CDK      │    │              │    │ Posts @claude│               │
+│  └──────────┘    └──────────────┘    └──────┬──────┘               │
+│       │                │                     │                      │
+│   Tests fail?    Posts inline          CRITICAL/HIGH                │
+│       │          comments +            findings only                │
+│    ❌ Stop       merge signal                │                      │
+└─────────────────────────────────────────────┼───────────────────────┘
+                                              │
+                                    @claude comment (as App bot)
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  claude-fix.yml (issue_comment trigger)                             │
+│                                                                     │
+│  ┌──────────────────────────────────────────┐                       │
+│  │  Claude Code Action (Sonnet 4, Bedrock)  │                       │
+│  │  • Reads PR context + findings           │                       │
+│  │  • Fixes code, runs tests                │                       │
+│  │  • Reverts broken fixes                  │                       │
+│  │  • Pushes working changes                │──── Push triggers     │
+│  └──────────────────────────────────────────┘     re-review (↑)     │
+│                                                                     │
+│  Max 2 cycles → then escalates to human                             │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 | Agent | Model | What it does |
@@ -75,7 +105,7 @@ PR push → Tests (Vitest/pytest/CDK) → AI Review (Opus 4.6) → Auto-Fix (Son
 | **Fix Agent** | Claude Sonnet 4 (Bedrock) | Reads review findings, fixes source code, runs tests, pushes. Reverts fixes that break tests. Max 2 cycles before escalating to human. |
 
 - **Security enforced**: SLATS rules in `.claude/rules/security.md` auto-loaded by all agents
-- **Zero human intervention** for review + fix cycle
+- **Zero human intervention** for review + fix cycle (uses GitHub App token to trigger cross-workflow)
 - **Human approval required** for merge (bot never approves)
 - **Disable per-PR**: add `no-auto-fix` label to skip auto-fix
 
