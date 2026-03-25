@@ -9,11 +9,6 @@ from aws_cdk import (
 )
 from constructs import Construct
 
-CONNECTION_ARN = (
-    "arn:aws:codeconnections:us-east-1:REDACTED_ACCOUNT_ID"
-    ":connection/REDACTED_CONNECTION_ID"
-)
-
 
 class BackendPipelineStack(Stack):
     """CI/CD pipeline for the RunMapRepeat backend (test + cdk deploy)."""
@@ -115,7 +110,7 @@ class BackendPipelineStack(Stack):
             owner="barakcaf",
             repo="runmaprepeat",
             branch="main",
-            connection_arn=CONNECTION_ARN,
+            connection_arn=self.node.try_get_context("codeconnection_arn"),
             output=source_output,
         )
 

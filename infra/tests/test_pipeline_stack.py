@@ -8,7 +8,7 @@ DISTRIBUTION_ID = "EXXXXXXXXXX"
 
 
 def _create_stack() -> assertions.Template:
-    app = cdk.App()
+    app = cdk.App(context={"codeconnection_arn": "arn:aws:codeconnections:us-east-1:123456789012:connection/test-id"})
     stack = PipelineStack(
         app,
         "TestPipeline",

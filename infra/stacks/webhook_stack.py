@@ -12,10 +12,7 @@ from aws_cdk import (
 )
 from constructs import Construct
 
-CONNECTION_ARN = (
-    "arn:aws:codeconnections:us-east-1:REDACTED_ACCOUNT_ID"
-    ":connection/REDACTED_CONNECTION_ID"
-)
+
 
 PIPELINE_MAP = {
     "frontend": "RunMapRepeat-Frontend-Pipeline",

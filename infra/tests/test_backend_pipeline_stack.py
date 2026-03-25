@@ -7,7 +7,7 @@ from stacks.backend_pipeline_stack import BackendPipelineStack
 
 
 def test_backend_pipeline_created() -> None:
-    app = cdk.App()
+    app = cdk.App(context={"codeconnection_arn": "arn:aws:codeconnections:us-east-1:123456789012:connection/test-id"})
     stack = BackendPipelineStack(
         app,
         "TestBackendPipeline",
@@ -37,7 +37,7 @@ def test_backend_pipeline_created() -> None:
 
 
 def test_deploy_project_has_iam_permissions() -> None:
-    app = cdk.App()
+    app = cdk.App(context={"codeconnection_arn": "arn:aws:codeconnections:us-east-1:123456789012:connection/test-id"})
     stack = BackendPipelineStack(
         app,
         "TestBackendPipeline",

@@ -102,7 +102,7 @@ class PipelineStack(Stack):
             owner="barakcaf",
             repo="runmaprepeat",
             branch="main",
-            connection_arn="REDACTED_CONNECTION_ARN",
+            connection_arn=self.node.try_get_context("codeconnection_arn"),
             output=source_output,
         )
 
