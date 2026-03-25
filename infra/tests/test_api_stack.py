@@ -7,7 +7,7 @@ from stacks.data_stack import DataStack
 
 
 def _create_api_stack() -> assertions.Template:
-    app = cdk.App()
+    app = cdk.App(context={"allowed_origin": "https://test.example.com"})
     auth_stack = AuthStack(app, "TestAuth")
     data_stack = DataStack(app, "TestData")
     api_stack = ApiStack(
