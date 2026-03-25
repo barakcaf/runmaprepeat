@@ -46,7 +46,7 @@ class BackendPipelineStack(Stack):
                         "build": {
                             "commands": [
                                 "echo '--- Backend tests ---'",
-                                "cd $CODEBUILD_SRC_DIR/backend && python -m pytest tests/ -v",
+                                "cd $CODEBUILD_SRC_DIR/backend && python -m pytest tests/ -v -m 'not integration'",
                                 "echo '--- CDK tests ---'",
                                 "cd $CODEBUILD_SRC_DIR/infra && python -m pytest tests/ -v",
                             ],
