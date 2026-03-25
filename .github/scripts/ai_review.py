@@ -1,4 +1,4 @@
-"""AI Code Review Agent — reviews PRs via Amazon Bedrock (Claude).
+"""AI Code Review Agent — reviews PRs via Amazon Bedrock (Claude Opus 4.6).
 
 Runs inside GitHub Actions. Posts inline comments + summary on the PR.
 On re-review (synchronize), reads existing comments and auto-resolves
@@ -285,10 +285,10 @@ def parse_diff_line_map(patch: str) -> dict[int, int]:
     for raw_line in patch.split("\n"):
         position += 1
         if raw_line.startswith("@@"):
-            try:
-                plus_part = raw_line.split("+")[1].split("@@")[0]
-                file_line = int(plus_part.split(",")[0]) - 1
-            except (IndexError, ValueError):
+            hunk_match = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)", raw_line)
+            if hunk_match:
+                file_line = int(hunk_match.group(1)) - 1
+            else:
                 file_line = 0
             continue
         if raw_line.startswith("-"):
@@ -309,7 +309,10 @@ def _get_bedrock_client():
     """Return a cached Bedrock runtime client."""
     global _bedrock_client
     if _bedrock_client is None:
-        _bedrock_client = boto3.client("bedrock-runtime", region_name="us-east-1")
+        _bedrock_client = boto3.client(
+            "bedrock-runtime",
+            region_name=os.environ.get("AWS_REGION", "us-east-1"),
+        )
     return _bedrock_client
 
 
