@@ -1,0 +1,44 @@
+name: Claude Auto-Fix
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  fix:
+    name: Claude Code Fix
+    runs-on: ubuntu-latest
+    if: >
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@claude') &&
+      github.event.comment.user.login == 'github-actions[bot]' &&
+      !contains(github.event.issue.labels.*.name, 'no-auto-fix')
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          use_bedrock: "true"
+          claude_args: "--model sonnet --max-turns 30"
+          github_token: ${{ steps.app-token.outputs.token }}
+          trigger_phrase: "@claude"
+          timeout_minutes: 15
