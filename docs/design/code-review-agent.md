@@ -9,200 +9,202 @@
 
 ## Executive Summary
 
-This document proposes adding an automated AI code review bot to the RunMapRepeat project. The bot will review pull requests using an LLM (Claude via Amazon Bedrock), post inline comments and a summary on each PR, and integrate via a lightweight GitHub Actions workflow. The goal is to catch bugs, enforce project conventions, and reduce review burden — not to replace human review, but to augment it.
+An automated AI code review bot that runs on every PR via GitHub Actions. It calls Claude Sonnet on Amazon Bedrock to review the diff, then posts inline comments and a summary directly on the PR — following the same structured review flow proven on PRs #64/#65 (Spotify integration).
 
-Given that RunMapRepeat is a small personal project (React frontend + Python Lambda backend + CDK infra), the approach favors simplicity: a single GitHub Actions workflow using the open-source `coderabbitai/ai-pr-reviewer` action or a custom lightweight script calling Bedrock, rather than a paid SaaS or complex self-hosted service.
-
----
-
-## 1. Research Findings
-
-### 1.1 How Teams Use LLMs for Code Review
-
-The dominant pattern is: **on PR open/update → fetch diff → send diff + context to LLM → post comments back to PR**. Key learnings from the field:
-
-- **Greptile's data** (2.2M+ PRs reviewed): 69.5% of PRs have at least one issue flagged. 48% of flagged issues are logic errors, not style/syntax. Comments rated helpful by developers: 58%. ([greptile.com/blog/ai-code-review](https://www.greptile.com/blog/ai-code-review))
-- **Separation of concerns matters**: The tool that generates code should NOT be the same tool that reviews it. Shared assumptions = shared blind spots. Independent review catches what self-review misses.
-- **Noise is the #1 killer**: If every PR gets a wall of comments, developers ignore them within a week. Confidence scoring and filtering are critical.
-- **Cross-file context is where AI shines**: Single-file linting is table stakes. The real value is catching logic issues that span multiple files — something humans do poorly under time pressure.
-
-### 1.2 Existing Solutions Comparison
-
-| Tool | Type | Cost | Approach | Pros | Cons |
-|------|------|------|----------|------|------|
-| **GitHub Copilot Code Review** | Built-in | Copilot subscription | Select "Copilot" as reviewer; auto-review option available | Zero setup, native GitHub UX, custom instructions via `.github/copilot-instructions.md` (4K char limit) | Only "Comment" reviews (no approve/block), can repeat dismissed comments on re-review, limited customization |
-| **CodeRabbit** | SaaS | Free for OSS, paid for private | GitHub App, deep codebase indexing, learns from feedback | Excellent context awareness, inline suggestions, conversation support, IDE + CLI integration | External SaaS dependency, data leaves your repo |
-| **CodeRabbit ai-pr-reviewer** | Open-source Action | API costs only | GitHub Action, uses OpenAI API, light + heavy model split | Self-hosted, customizable prompts, incremental reviews, ~$20/day for 20-dev team with GPT-4 | Maintenance burden, OpenAI-only (no Bedrock), repo archived/maintenance mode |
-| **ChatGPT-CodeReview (anc95)** | Open-source Action | API costs only | GitHub Action, sends patch to OpenAI, posts review comments | Simple setup, configurable prompt/model/language, file pattern filtering | Basic — no incremental review, no context beyond diff, OpenAI-only |
-| **Greptile** | SaaS | Paid | Full codebase indexing, confidence scoring, agentic review | Deep context, confidence scores (63% safe vs 37% needs attention), catches cross-file bugs | Paid SaaS, external data processing |
-| **Sourcery** | SaaS + Action | Free tier | AST-aware analysis + LLM review | Good for Python, respects code structure | Limited language support, less useful for CDK/React |
-| **Custom script (DIY)** | Self-hosted | API costs only | GitHub Action → fetch diff → call Bedrock/Claude → post comments | Full control, use Bedrock (no external API keys), project-specific prompts | Build + maintain yourself |
-
-**Sources:**
-- GitHub Copilot Code Review docs: [docs.github.com](https://docs.github.com/en/copilot/using-github-copilot/code-review/using-copilot-code-review)
-- CodeRabbit ai-pr-reviewer: [github.com/coderabbitai/ai-pr-reviewer](https://github.com/coderabbitai/ai-pr-reviewer)
-- ChatGPT-CodeReview: [github.com/anc95/ChatGPT-CodeReview](https://github.com/anc95/ChatGPT-CodeReview)
-- Greptile blog: [greptile.com/blog/ai-code-review](https://www.greptile.com/blog/ai-code-review)
-
-### 1.3 Prompt Engineering for Code Review
-
-What makes a good code review prompt:
-
-1. **Role definition**: "You are a senior developer reviewing a pull request for [project description]."
-2. **Project context**: Tech stack, conventions, known patterns. For RunMapRepeat: React + TypeScript frontend, Python Lambda backend, CDK infra, CodeBuild CI/CD.
-3. **Structured output**: Ask for categorized feedback (bugs, security, performance, style) with severity levels.
-4. **Specificity over generality**: "Check Lambda handlers for proper error handling and DynamoDB pagination" beats "review this code."
-5. **Negative examples**: "Do NOT comment on formatting, import order, or trivial naming preferences."
-6. **Context window management**: Send the diff + relevant file context, not the entire repo. For large PRs, chunk by file and summarize.
-
-**Key anti-patterns to avoid:**
-- Sending raw diff without file context → hallucinated function signatures
-- Asking for "all issues" → noise explosion
-- No severity levels → everything looks equally important
-- No project-specific rules → generic advice that doesn't apply
-
-### 1.4 What to Automate vs Leave to Humans
-
-**Good for AI review:**
-- Logic bugs (missing error handling, off-by-one, race conditions)
-- Security issues (hardcoded secrets, SQL injection, overly permissive IAM)
-- CDK/CloudFormation anti-patterns (public S3 buckets, missing encryption)
-- Python Lambda gotchas (cold start issues, missing pagination, timeout risks)
-- React anti-patterns (missing dependency arrays in useEffect, prop drilling)
-- Convention violations (project-specific patterns documented in AGENTS.md)
-- Missing tests for new functionality
-
-**Leave to humans:**
-- Architecture decisions
-- UX/design choices
-- Business logic correctness (does this feature do what users want?)
-- Trade-off discussions (performance vs readability)
-- Whether a feature should exist at all
-
-### 1.5 Integration Patterns
-
-| Pattern | How | Pros | Cons |
-|---------|-----|------|------|
-| **GitHub Actions on PR event** | Workflow triggers on `pull_request` | Simple, no infra to maintain, runs in GitHub's compute | Limited to diff context, cold start per run |
-| **GitHub App (webhook)** | Webhook → Lambda → review → post comments | Real-time, can maintain state, conversation support | More complex, needs hosting |
-| **PR comment bot** | Post summary + inline comments via GitHub API | Native UX, developers already look at PR comments | Can be noisy |
-| **Inline suggestions** | Use GitHub's "suggested changes" format | One-click apply, very low friction | Only works for simple changes |
-| **Summary-only** | Single comment with review summary | Low noise, easy to scan | Loses line-specific context |
-
-**Best approach for a small project: GitHub Actions + inline comments + summary.** No infra to maintain, triggers automatically, and the comments live right where developers look.
+The bot is fully automated: PR open/update triggers the workflow, Bedrock performs the review, results are posted as GitHub PR review comments. No human or assistant in the loop.
 
 ---
 
-## 2. Recommended Approach for RunMapRepeat
+## 1. Review Flow
 
-### 2.1 Architecture
+### 1.1 End-to-End Flow
 
 ```
-PR opened/updated
+PR opened / updated (push to PR branch)
     │
     ▼
 GitHub Actions workflow triggers
     │
     ▼
-Custom review script (Python or Node)
+Review script (.github/scripts/ai_review.py)
     │
-    ├── Fetch PR diff via GitHub API
-    ├── Fetch relevant file context (changed files, full content)
-    ├── Build structured prompt with project context
-    ├── Call Amazon Bedrock (Claude Sonnet) via AWS SDK
-    ├── Parse response into inline comments + summary
+    ├── 1. Fetch PR metadata (title, description, author)
+    ├── 2. Fetch changed files + full file content via GitHub API
+    ├── 3. Filter files (skip *.md, *.json, cdk.out/, node_modules/)
+    ├── 4. Build structured prompt (project context + review categories + diff)
+    ├── 5. Call Amazon Bedrock (Claude Sonnet) via ConverseAPI
+    ├── 6. Parse structured response into findings
     │
     ▼
-Post review via GitHub API
-    ├── Inline comments on specific lines
-    └── Summary comment with overall assessment
+Post review via GitHub API (pulls/reviews endpoint)
+    ├── Review body: summary + highlights + finding counts
+    ├── Inline comments: one per finding (severity + explanation + fix suggestion)
+    └── Event type: COMMENT (bot cannot approve/block)
 ```
 
-### 2.2 Why Custom Over Off-the-Shelf
+### 1.2 Sequence Diagram
 
-1. **Bedrock integration**: RunMapRepeat already uses AWS. Using Bedrock means no external API keys, IAM-based auth, and cost stays within the AWS bill. None of the open-source actions support Bedrock natively.
-2. **Project-specific prompts**: RunMapRepeat has specific conventions (CDK patterns, Lambda structure, React patterns) that benefit from tailored prompts.
-3. **Simplicity**: A single Python script (~200-300 lines) in a GitHub Action is easier to maintain than a GitHub App with webhooks and state.
-4. **Cost**: Claude Sonnet on Bedrock for a few PRs/week costs pennies. No SaaS subscription needed.
+```mermaid
+sequenceDiagram
+    participant GH as GitHub
+    participant GA as GitHub Actions
+    participant S as Review Script
+    participant BR as Amazon Bedrock
+    participant API as GitHub API
 
-### 2.3 Design Decisions
-
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| LLM | Claude Sonnet 4 via Bedrock | Best reasoning for code review, already in AWS account, cost-effective |
-| Trigger | GitHub Actions `pull_request` event | Zero infra, automatic |
-| Auth to Bedrock | OIDC federation (GitHub → AWS IAM Role) | No long-lived secrets, industry best practice |
-| Comment style | Inline comments + summary | Line-specific feedback + overview |
-| Review scope | Changed files only, with full file context | Balance between context and token cost |
-| Noise control | Severity levels (critical/warning/info), skip formatting-only feedback | Reduce false positive fatigue |
-| File filtering | Skip `*.md`, `*.json` (non-logic), `node_modules/`, `cdk.out/` | Don't waste tokens on generated/config files |
-| Re-review | On push to PR branch (changed files only) | Incremental, cost-efficient |
-
-### 2.4 Prompt Structure
-
-```
-<system>
-You are a senior developer reviewing a pull request for RunMapRepeat,
-a personal exercise tracker app.
-
-Tech stack:
-- Frontend: React 18 + Vite + TypeScript
-- Backend: AWS Lambda (Python 3.12)
-- Infrastructure: AWS CDK (Python)
-- CI/CD: AWS CodeBuild + CodePipeline
-
-Project conventions:
-- Lambda handlers must handle errors and return proper HTTP responses
-- DynamoDB scans must paginate (1MB limit per call)
-- CDK constructs follow Well-Architected patterns
-- React components use functional style with hooks
-- No hardcoded AWS account IDs, ARNs, or secrets in source
-
-Review rules:
-- Focus on bugs, security issues, and logic errors
-- Flag missing error handling and edge cases
-- Check for AWS anti-patterns (public buckets, overly permissive IAM)
-- DO NOT comment on code formatting, import order, or naming preferences
-- DO NOT suggest adding comments to self-explanatory code
-- Assign severity: CRITICAL (must fix), WARNING (should fix), INFO (consider)
-</system>
-
-<user>
-Review this pull request.
-
-PR Title: {{pr_title}}
-PR Description: {{pr_description}}
-
-Files changed:
-
-{{for each file}}
-### {{filename}}
-```diff
-{{diff}}
+    GH->>GA: pull_request event (opened/synchronize)
+    GA->>S: Run ai_review.py
+    S->>API: GET /repos/{repo}/pulls/{pr}/files
+    API-->>S: Changed files + patches
+    S->>API: GET /repos/{repo}/contents/{path} (per file)
+    API-->>S: Full file content
+    S->>S: Filter files, build prompt
+    S->>BR: Converse (Claude Sonnet) with structured prompt
+    BR-->>S: Review findings (JSON)
+    S->>S: Parse findings → inline comments
+    S->>API: POST /repos/{repo}/pulls/{pr}/reviews
+    API-->>GH: Review with inline comments appears on PR
 ```
 
-Full file content:
-```{{language}}
-{{file_content}}
+### 1.3 Re-Review on Push
+
+When new commits are pushed to a PR branch, the workflow triggers again (`synchronize` event). The script reviews only the files changed in the latest push, avoiding duplicate comments on already-reviewed code. Previous bot reviews are not deleted — they remain as a history of what was flagged.
+
+---
+
+## 2. Review Categories
+
+The review prompt instructs the model to check each file against these categories:
+
+| Category | What to check |
+|----------|---------------|
+| **Security** | Credential handling, input validation, CORS, XSS, open redirects, IAM permissions, public resources |
+| **Error handling** | Missing try/catch, unhandled edge cases, error propagation, missing validation |
+| **Code quality** | Typing, naming, DRY, structure, dead code, copy-paste artifacts |
+| **AWS best practices** | Lambda patterns (cold start, timeout, memory), IAM scope, CDK constructs, DynamoDB pagination |
+| **Test coverage** | Missing test cases, untested edge cases, test quality |
+| **Performance** | Unnecessary re-renders (React), bundle size, redundant API calls, memory leaks |
+| **Compliance** | Third-party ToS (e.g., Spotify branding), accessibility (ARIA), licensing |
+
+The prompt explicitly excludes: formatting, import order, trivial naming preferences, and "add a comment" suggestions.
+
+---
+
+## 3. Severity Levels
+
+Each finding is assigned a severity level that maps to a required action:
+
+| Level | Emoji | Meaning | Action |
+|-------|-------|---------|--------|
+| CRITICAL | 🔴 | Security vulnerability or data loss risk | Must fix before merge |
+| HIGH | 🟠 | Bug, missing error handling, or security hardening gap | Must fix before merge |
+| MEDIUM | 🟡 | Code quality, minor bugs, missing validation, UX issues | Should fix (can be follow-up) |
+| LOW | 🟢 | Style, minor improvements, optional optimizations | Nice to have |
+| NIT | 📝 | Trivial observations | Ignore or fix opportunistically |
+
+The bot only posts **CRITICAL**, **HIGH**, and **MEDIUM** findings as inline comments by default. LOW and NIT findings are included in the summary comment only, to reduce noise.
+
+---
+
+## 4. Comment Format
+
+### 4.1 Inline Comments
+
+Each inline comment on a specific line follows this format:
+
 ```
-{{end for}}
+🟠 **HIGH: Short description**
 
-Respond in this format:
+Explanation of the issue with context on why it matters.
 
-## Summary
-Brief overview of the changes and overall assessment.
+**Fix:**
+```python
+# Suggested code change
+```
+```
 
-## Issues Found
+When the fix is a simple replacement, use GitHub's suggested changes format for one-click apply:
 
-### [SEVERITY] filename:line - Short description
-Explanation of the issue and suggested fix.
+````
+🟡 **MEDIUM: No query length limit**
+
+Any-length query gets forwarded directly to the API.
+
 ```suggestion
-// suggested code change
+if len(query) > 256:
+    return {"statusCode": 400, "body": json.dumps({"error": "Query too long"})}
 ```
-</user>
+````
+
+### 4.2 Review Body
+
+The review body (top-level comment) includes:
+
+```markdown
+## AI Code Review — PR #64: {title}
+
+{1-2 sentence summary of what the PR does and overall assessment}
+
+### 🟢 Highlights
+- {What's done well — 2-4 bullet points}
+
+### Findings: {N} HIGH, {N} MEDIUM, {N} LOW
+See inline comments for details.
+
+{If any LOW/NIT findings not posted inline:}
+### Low Priority
+- **L1:** {description} — `{filename}:{line}`
+- **N1:** {description} — `{filename}:{line}`
 ```
 
-### 2.5 File: `.github/workflows/ai-review.yml`
+---
+
+## 5. Architecture
+
+### 5.1 Components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| GitHub Actions workflow | `.github/workflows/ai-review.yml` | Triggers on PR events, authenticates to AWS via OIDC |
+| Review script | `.github/scripts/ai_review.py` | Fetches diff, builds prompt, calls Bedrock, posts review |
+| Prompt template | `.github/prompts/review.md` | Editable prompt with project context and review rules |
+| IAM role | `github-actions-ai-review` | OIDC-federated role with `bedrock:InvokeModel` only |
+
+### 5.2 Auth: GitHub → AWS (OIDC Federation)
+
+No long-lived AWS credentials stored in GitHub. The workflow uses OIDC federation:
+
+```
+GitHub Actions (OIDC provider)
+    │
+    ▼ (JWT token)
+AWS IAM (trust policy: token.actions.githubusercontent.com)
+    │
+    ▼ (temporary credentials)
+Amazon Bedrock (InvokeModel — Claude Sonnet)
+```
+
+IAM role trust policy restricts to the specific repo:
+```json
+{
+  "Condition": {
+    "StringEquals": {
+      "token.actions.githubusercontent.com:sub": "repo:barakcaf/runmaprepeat:*"
+    }
+  }
+}
+```
+
+IAM permissions — minimal scope:
+```json
+{
+  "Effect": "Allow",
+  "Action": ["bedrock:InvokeModel"],
+  "Resource": ["arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-*"]
+}
+```
+
+### 5.3 Workflow File: `.github/workflows/ai-review.yml`
 
 ```yaml
 name: AI Code Review
@@ -214,12 +216,11 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  id-token: write  # For OIDC federation
+  id-token: write  # OIDC federation
 
 jobs:
   review:
     runs-on: ubuntu-latest
-    # Don't review Dependabot or bot PRs
     if: github.actor != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@v4
@@ -248,37 +249,149 @@ jobs:
         run: python .github/scripts/ai_review.py
 ```
 
+### 5.4 Prompt Template: `.github/prompts/review.md`
+
+```markdown
+You are a senior developer reviewing a pull request for RunMapRepeat,
+a personal exercise tracker app.
+
+## Tech Stack
+- Frontend: React 18 + Vite + TypeScript (CSS Modules)
+- Backend: AWS Lambda (Python 3.12, stdlib only — no external deps)
+- Infrastructure: AWS CDK (Python)
+- CI/CD: AWS CodeBuild + CodePipeline
+- Auth: Amazon Cognito
+- Database: DynamoDB (single-table)
+
+## Review Categories
+Check each changed file against these categories:
+1. Security — credentials, input validation, CORS, XSS, IAM
+2. Error handling — missing try/catch, unhandled edge cases
+3. Code quality — typing, naming, DRY, dead code
+4. AWS best practices — Lambda cold start, IAM scope, DynamoDB pagination
+5. Test coverage — missing tests, untested edge cases
+6. Performance — re-renders, bundle size, memory
+7. Compliance — third-party ToS, accessibility
+
+## Rules
+- Assign severity: CRITICAL, HIGH, MEDIUM, LOW, or NIT
+- Only report actual issues — no praise-only comments
+- DO NOT comment on: formatting, import order, naming preferences, adding comments
+- Include a concrete fix suggestion for each finding
+- For simple fixes, use GitHub suggested changes format
+
+## Output Format (JSON)
+Respond with valid JSON only:
+{
+  "summary": "1-2 sentence overview",
+  "highlights": ["what's done well"],
+  "findings": [
+    {
+      "severity": "HIGH",
+      "file": "backend/data/spotify.py",
+      "line": 75,
+      "title": "No error handling for token exchange",
+      "body": "Explanation...",
+      "suggestion": "optional code suggestion"
+    }
+  ]
+}
+```
+
+### 5.5 Review Script: `.github/scripts/ai_review.py`
+
+High-level pseudocode:
+
+```python
+def main():
+    # 1. Fetch PR data
+    pr = github.get_pr(repo, pr_number)
+    files = pr.get_files()
+
+    # 2. Filter
+    files = [f for f in files if not should_skip(f.filename)]
+
+    # 3. Build prompt
+    prompt = load_template(".github/prompts/review.md")
+    for f in files:
+        prompt += f"\n### {f.filename}\n```diff\n{f.patch}\n```\n"
+        prompt += f"Full file:\n```\n{get_file_content(f.filename)}\n```\n"
+
+    # 4. Call Bedrock
+    response = bedrock.converse(
+        modelId="anthropic.claude-sonnet-4-20250514-v1:0",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    findings = json.loads(response)
+
+    # 5. Post review
+    comments = []
+    for f in findings["findings"]:
+        if f["severity"] in ("CRITICAL", "HIGH", "MEDIUM"):
+            comments.append({
+                "path": f["file"],
+                "line": f["line"],
+                "body": format_comment(f),
+            })
+
+    pr.create_review(
+        body=format_summary(findings),
+        event="COMMENT",
+        comments=comments,
+    )
+
+def format_comment(finding):
+    emoji = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡"}[finding["severity"]]
+    body = f'{emoji} **{finding["severity"]}: {finding["title"]}**\n\n{finding["body"]}'
+    if finding.get("suggestion"):
+        body += f'\n\n**Fix:**\n```suggestion\n{finding["suggestion"]}\n```'
+    return body
+
+def should_skip(filename):
+    skip_patterns = [".md", ".json", "cdk.out/", "node_modules/", "__pycache__/"]
+    return any(filename.endswith(p) or p in filename for p in skip_patterns)
+```
+
 ---
 
-## 3. Implementation Plan
+## 6. Design Decisions
 
-### Phase 1: MVP (1-2 hours)
-- [ ] Create IAM role for GitHub OIDC federation with Bedrock invoke permissions
-- [ ] Write `ai_review.py` script (~200 lines):
-  - Fetch PR diff and changed files via PyGithub
-  - Build prompt from template
-  - Call Bedrock Claude Sonnet
-  - Parse response and post as PR review comments
-- [ ] Add workflow file `.github/workflows/ai-review.yml`
-- [ ] Test on a real PR
-
-### Phase 2: Refinement (1-2 hours)
-- [ ] Add file filtering (skip `.md`, `cdk.out/`, etc.)
-- [ ] Add prompt template as a separate file (`.github/prompts/review.md`) for easy editing
-- [ ] Handle large PRs: chunk files if total tokens exceed context window
-- [ ] Add cost tracking (log token usage)
-
-### Phase 3: Polish (optional, 1 hour)
-- [ ] Add `/review` slash command in PR comments to trigger manual re-review
-- [ ] Add severity filtering (only post CRITICAL and WARNING by default)
-- [ ] Track review quality: add thumbs up/down reactions and log to CloudWatch
-- [ ] Add `.github/review-rules.yml` for configurable ignore patterns and custom rules
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| LLM | Claude Sonnet 4 via Bedrock | Best reasoning for code review, already in AWS account, cost-effective |
+| Trigger | GitHub Actions `pull_request` event | Zero infra, automatic, no webhook/Lambda needed |
+| Auth to Bedrock | OIDC federation (GitHub → AWS IAM Role) | No long-lived secrets, industry best practice |
+| Comment style | Inline comments + summary | Line-specific feedback + overview — matches proven PR #64/#65 format |
+| Review scope | Changed files only, with full file context | Balance between context and token cost |
+| Noise control | Severity filtering (inline = HIGH+, summary = all) | Reduce comment fatigue while preserving visibility |
+| File filtering | Skip non-code files | Don't waste tokens on generated/config files |
+| Output format | JSON from LLM → parsed by script | Reliable parsing, easy to map to GitHub API |
+| Re-review | On push (synchronize event) | Incremental, catches fixes and regressions |
+| Review event | COMMENT (not APPROVE/REQUEST_CHANGES) | Bot should never block — human approval required |
 
 ---
 
-## 4. Cost Estimate
+## 7. Implementation Plan
 
-For a personal project with ~5-10 PRs/week, averaging 500 lines changed per PR:
+| Phase | Tasks | Effort |
+|-------|-------|--------|
+| **1: MVP** | IAM OIDC role, `ai_review.py` script, workflow file, prompt template, test on real PR | 2-3 hours |
+| **2: Refinement** | File filtering, large PR chunking, prompt as separate file, token usage logging | 1-2 hours |
+| **3: Polish** | `/review` slash command, severity filtering config, `.github/review-rules.yml` | 1 hour |
+
+### Phase 1 Checklist
+- [ ] Create IAM role `github-actions-ai-review` with OIDC trust + `bedrock:InvokeModel`
+- [ ] Store AWS account ID as GitHub repo secret
+- [ ] Write `.github/scripts/ai_review.py` (~200 lines)
+- [ ] Write `.github/prompts/review.md` (prompt template)
+- [ ] Add `.github/workflows/ai-review.yml`
+- [ ] Test on a real PR and tune prompt based on output quality
+
+---
+
+## 8. Cost Estimate
+
+For ~5-10 PRs/week, averaging 500 lines changed per PR:
 
 | Component | Estimate |
 |-----------|----------|
@@ -287,11 +400,9 @@ For a personal project with ~5-10 PRs/week, averaging 500 lines changed per PR:
 | Monthly cost | **< $1/month** |
 | GitHub Actions minutes | Free tier (2,000 min/month for private repos) |
 
-This is effectively free for a personal project.
-
 ---
 
-## 5. Risks and Mitigations
+## 9. Risks and Mitigations
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
@@ -300,49 +411,70 @@ This is effectively free for a personal project.
 | **Context window overflow** | Low | Low | File chunking for large PRs, skip non-code files |
 | **Bedrock rate limits** | Low | Low | Single PR at a time, exponential backoff |
 | **Cost runaway** | Very Low | Low | Hard token limit in script, budget alert on AWS account |
-| **Over-reliance on AI review** | Low | High | Bot posts "Comment" reviews only, never "Approve" — human approval still required |
-| **Prompt injection via PR content** | Low | Medium | Sanitize PR description, don't execute suggested code, review-only permissions |
+| **Over-reliance on AI review** | Low | High | Bot posts COMMENT only, never APPROVE — human approval still required |
+| **Prompt injection via PR content** | Low | Medium | Sanitize PR description, review-only permissions |
 | **Stale prompts** | Medium | Low | Keep prompt template in repo, update as conventions evolve |
 
 ---
 
-## 6. Alternatives Considered
+## 10. Alternatives Considered
 
 ### Option A: GitHub Copilot Code Review (Built-in)
 - **Pros**: Zero setup, native UX
-- **Cons**: Requires Copilot subscription, limited customization (4K char instruction limit), can't use Bedrock, repeats dismissed comments
-- **Verdict**: Good fallback if custom approach is too much effort, but less tailored
+- **Cons**: Copilot subscription, limited customization (4K chars), can't use Bedrock
+- **Verdict**: Less tailored, costs money
 
-### Option B: CodeRabbit SaaS (Free for OSS)
-- **Pros**: Best-in-class review quality, learns from feedback, zero maintenance
-- **Cons**: External SaaS, data leaves repo, RunMapRepeat is a private repo (would need paid plan)
-- **Verdict**: Overkill for a personal project, and costs money for private repos
+### Option B: CodeRabbit SaaS
+- **Pros**: Best-in-class quality, learns from feedback
+- **Cons**: External SaaS, data leaves repo, paid for private repos
+- **Verdict**: Overkill for a personal project
 
-### Option C: Fork `ai-pr-reviewer` and add Bedrock support
-- **Pros**: Battle-tested codebase, incremental review, conversation support
-- **Cons**: Repo is in maintenance mode, significant codebase to understand and modify
-- **Verdict**: More effort than writing a simple custom script
+### Option C: Fork `ai-pr-reviewer` + Bedrock support
+- **Pros**: Battle-tested, incremental review, conversation support
+- **Cons**: Repo in maintenance mode, significant code to understand
+- **Verdict**: More effort than custom script
 
-### **Selected: Option D — Custom lightweight script with Bedrock**
-Best fit for a small personal project: minimal code, full control, no external dependencies, uses existing AWS infrastructure.
-
----
-
-## 7. Future Enhancements (Not in Scope)
-
-- **Codebase indexing**: Embed the full codebase in a vector store for richer context (only worthwhile if the project grows significantly)
-- **Learning from feedback**: Track which comments get thumbs up/down and tune prompts
-- **Multi-model review**: Use a fast model for triage and a powerful model for flagged files
-- **Integration with Loki**: Have the review bot notify via Telegram when critical issues are found
-- **Pre-commit review**: Review code before it's pushed (IDE integration)
+### **Selected: Custom script + Bedrock**
+Minimal code, full control, no external dependencies, uses existing AWS infrastructure. Review format proven on PRs #64/#65.
 
 ---
 
-## Appendix: Key References
+## Appendix A: Research Findings
+
+### How Teams Use LLMs for Code Review
+
+The dominant pattern is: **on PR open/update → fetch diff → send diff + context to LLM → post comments back to PR**. Key learnings:
+
+- **Greptile's data** (2.2M+ PRs): 69.5% of PRs have at least one issue flagged. 48% are logic errors, not style. 58% of comments rated helpful.
+- **Separation of concerns**: The tool that generates code should NOT review it. Independent review catches shared blind spots.
+- **Noise is the #1 killer**: If every PR gets a wall of comments, developers ignore them within a week.
+- **Cross-file context is where AI shines**: Catching logic issues that span multiple files — something humans do poorly under time pressure.
+
+### Prompt Engineering Key Lessons
+
+1. **Role definition** + **project context** = most impactful improvement
+2. **Structured output (JSON)** = reliable parsing for GitHub API
+3. **Negative examples** ("DO NOT comment on formatting") = essential for noise control
+4. **Severity levels** = developers triage findings effectively
+5. **Full file context** (not just diff) = prevents hallucinated suggestions
+
+### What AI Reviews Well vs. Leave to Humans
+
+| AI reviews well | Leave to humans |
+|----------------|-----------------|
+| Logic bugs, missing error handling | Architecture decisions |
+| Security issues, IAM anti-patterns | UX/design choices |
+| CDK/CloudFormation anti-patterns | Business logic correctness |
+| React anti-patterns | Trade-off discussions |
+| Convention violations | Whether a feature should exist |
+| Missing tests | |
+
+---
+
+## Appendix B: Key References
 
 1. Greptile — "What Developers Need to Know About AI Code Reviews" — [greptile.com/blog/ai-code-review](https://www.greptile.com/blog/ai-code-review)
 2. GitHub Copilot Code Review docs — [docs.github.com](https://docs.github.com/en/copilot/using-github-copilot/code-review/using-copilot-code-review)
-3. CodeRabbit ai-pr-reviewer (open source) — [github.com/coderabbitai/ai-pr-reviewer](https://github.com/coderabbitai/ai-pr-reviewer)
+3. CodeRabbit ai-pr-reviewer — [github.com/coderabbitai/ai-pr-reviewer](https://github.com/coderabbitai/ai-pr-reviewer)
 4. ChatGPT-CodeReview — [github.com/anc95/ChatGPT-CodeReview](https://github.com/anc95/ChatGPT-CodeReview)
-5. CodeRabbit platform docs — [docs.coderabbit.ai](https://docs.coderabbit.ai)
-6. Anthropic prompt engineering — [docs.anthropic.com](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
+5. Anthropic prompt engineering — [docs.anthropic.com](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
