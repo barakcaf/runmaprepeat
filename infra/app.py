@@ -7,6 +7,7 @@ from stacks.backend_pipeline_stack import BackendPipelineStack
 from stacks.data_stack import DataStack
 from stacks.frontend_stack import FrontendStack
 from stacks.pipeline_stack import PipelineStack
+from stacks.webhook_stack import WebhookStack
 
 app = cdk.App()
 
@@ -33,5 +34,7 @@ PipelineStack(
 )
 
 BackendPipelineStack(app, "RunMapRepeat-Backend-Pipeline", env=env)
+
+WebhookStack(app, "RunMapRepeat-Webhook", env=env)
 
 app.synth()
