@@ -190,10 +190,10 @@ jobs:
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
-            // Get the authenticated user (the App bot)
-            const { data: appUser } = await github.rest.users.getAuthenticated();
-            const appLogin = appUser.login;
-            console.log(`App login: ${appLogin}`);
+            // Derive the App bot login from the App ID
+            // GitHub App bots are always: <app-name>[bot], but we can also
+            // match by user type + marker string to avoid needing the exact name
+            const appId = '${{ secrets.APP_ID }}';
 
             // Check existing @claude fix comments to count cycles
             const comments = await github.paginate(
@@ -201,7 +201,8 @@ jobs:
               { owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number }
             );
             const fixComments = comments.filter(c =>
-              c.user.login === appLogin &&
+              c.user.type === 'Bot' &&
+              c.performed_via_github_app?.id === Number(appId) &&
               c.body.includes('@claude') &&
               c.body.includes('[ai-fix-cycle-')
             );
@@ -209,6 +210,7 @@ jobs:
             core.setOutput('cycle', cycle);
             core.setOutput('skip', cycle > 2 ? 'true' : 'false');
             console.log(`Fix cycle: ${cycle}/2 (skip: ${cycle > 2})`);
+            console.log(`Found ${fixComments.length} existing fix comments from App ID ${appId}`);
 
       - name: Post max-cycles comment
         if: steps.cycle.outputs.skip == 'true'
