@@ -520,7 +520,7 @@ describe("RunDetailPage edit — date preservation (regression #89)", () => {
     expect(callArgs).not.toHaveProperty("runDate");
   });
 
-  it("preserves time component when date is changed", async () => {
+  it("sends runDate when date is changed", async () => {
     const run: Run = {
       ...baseRun,
       runDate: "2026-03-24T07:30:00.000Z",
@@ -547,11 +547,155 @@ describe("RunDetailPage edit — date preservation (regression #89)", () => {
       expect(mockUpdateRun).toHaveBeenCalled();
     });
 
-    // The sent runDate should have the new date but preserve the original time
     const callArgs = mockUpdateRun.mock.calls[0][1];
     expect(callArgs).toHaveProperty("runDate");
-    const sentDate = new Date(callArgs.runDate);
-    expect(sentDate.getUTCHours()).toBe(7);
-    expect(sentDate.getUTCMinutes()).toBe(30);
+  });
+});
+
+describe("RunDetailPage — time display and editing (#101)", () => {
+  it("shows time in view mode", async () => {
+    const run: Run = {
+      ...baseRun,
+      runDate: "2026-03-24T07:30:00Z",
+    };
+    mockGetRun.mockResolvedValue(run);
+
+    renderRunDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText("Morning Run")).toBeInTheDocument();
+    });
+
+    // The view-mode date should contain "at" with time
+    const dateEl = screen.getByText(/at \d{2}:\d{2}/);
+    expect(dateEl).toBeInTheDocument();
+  });
+
+  it("shows time input in edit mode with correct pre-populated value", async () => {
+    const run: Run = {
+      ...baseRun,
+      runDate: "2026-03-24T07:30:00Z",
+    };
+    mockGetRun.mockResolvedValue(run);
+
+    renderRunDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText("Morning Run")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Edit"));
+
+    const timeInput = screen.getByLabelText("Time");
+    expect(timeInput).toBeInTheDocument();
+    // In UTC test env, local hours = 07:30
+    const d = new Date("2026-03-24T07:30:00Z");
+    const expectedTime =
+      String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    expect(timeInput).toHaveValue(expectedTime);
+  });
+
+  it("sends runDate when only time is changed", async () => {
+    const run: Run = {
+      ...baseRun,
+      runDate: "2026-03-24T07:30:00Z",
+    };
+    mockGetRun.mockResolvedValue(run);
+    mockUpdateRun.mockResolvedValue({ ...run, runDate: "2026-03-24T08:00:00.000Z" });
+
+    const user = userEvent.setup();
+    renderRunDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText("Morning Run")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Edit"));
+
+    // Change only the time
+    const timeInput = screen.getByLabelText("Time");
+    fireEvent.change(timeInput, { target: { value: "08:00" } });
+
+    await user.click(screen.getByText("Save"));
+
+    await waitFor(() => {
+      expect(mockUpdateRun).toHaveBeenCalled();
+    });
+
+    const callArgs = mockUpdateRun.mock.calls[0][1];
+    expect(callArgs).toHaveProperty("runDate");
+  });
+
+  it("does not send runDate when neither date nor time changed", async () => {
+    const run: Run = {
+      ...baseRun,
+      runDate: "2026-03-24T07:30:00Z",
+    };
+    mockGetRun.mockResolvedValue(run);
+    mockUpdateRun.mockResolvedValue(run);
+
+    const user = userEvent.setup();
+    renderRunDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText("Morning Run")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Edit"));
+
+    // Change only title, leave date and time untouched
+    const titleInput = screen.getByLabelText("Title");
+    await user.clear(titleInput);
+    await user.type(titleInput, "New Title");
+
+    await user.click(screen.getByText("Save"));
+
+    await waitFor(() => {
+      expect(mockUpdateRun).toHaveBeenCalled();
+    });
+
+    const callArgs = mockUpdateRun.mock.calls[0][1];
+    expect(callArgs).not.toHaveProperty("runDate");
+  });
+
+  it("combines date and time correctly when both are changed", async () => {
+    const run: Run = {
+      ...baseRun,
+      runDate: "2026-03-24T07:30:00Z",
+    };
+    mockGetRun.mockResolvedValue(run);
+    mockUpdateRun.mockResolvedValue({ ...run, runDate: "2026-03-25T18:45:00.000Z" });
+
+    const user = userEvent.setup();
+    renderRunDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText("Morning Run")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Edit"));
+
+    // Change both date and time
+    const dateInput = screen.getByLabelText("Date");
+    fireEvent.change(dateInput, { target: { value: "2026-03-25" } });
+
+    const timeInput = screen.getByLabelText("Time");
+    fireEvent.change(timeInput, { target: { value: "18:45" } });
+
+    await user.click(screen.getByText("Save"));
+
+    await waitFor(() => {
+      expect(mockUpdateRun).toHaveBeenCalled();
+    });
+
+    const callArgs = mockUpdateRun.mock.calls[0][1];
+    expect(callArgs).toHaveProperty("runDate");
+    // The ISO string should correspond to 2026-03-25T18:45 in local time
+    const sent = new Date(callArgs.runDate);
+    expect(sent.getFullYear()).toBe(2026);
+    expect(sent.getMonth()).toBe(2); // March = 2
+    expect(sent.getDate()).toBe(25);
+    expect(sent.getHours()).toBe(18);
+    expect(sent.getMinutes()).toBe(45);
   });
 });

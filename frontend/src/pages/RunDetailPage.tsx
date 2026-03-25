@@ -37,6 +37,7 @@ export function RunDetailPage() {
   const [editTitle, setEditTitle] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [editDate, setEditDate] = useState("");
+  const [editTime, setEditTime] = useState("");
   const [originalRunDate, setOriginalRunDate] = useState("");
   const [editDuration, setEditDuration] = useState("");
   const [editDistance, setEditDistance] = useState("");
@@ -62,6 +63,10 @@ export function RunDetailPage() {
     setEditNotes(data.notes ?? "");
     setOriginalRunDate(data.runDate);
     setEditDate(new Date(data.runDate).toLocaleDateString("sv-SE"));
+    const d = new Date(data.runDate);
+    setEditTime(
+      String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0")
+    );
     setEditDuration(data.durationSeconds ? formatDurationInput(data.durationSeconds) : "");
     setEditDistance(data.distanceMeters ? (data.distanceMeters / 1000).toFixed(2) : "");
     setEditElevation(data.elevationGainMeters !== undefined ? String(data.elevationGainMeters) : "");
@@ -89,16 +94,19 @@ export function RunDetailPage() {
     setSaving(true);
     setError(null);
     try {
-      // Only send runDate if the user actually changed the date
+      // Only send runDate if the user actually changed the date or time
       let runDate: string | undefined;
-      const originalDateStr = new Date(originalRunDate).toLocaleDateString("sv-SE");
-      if (editDate && editDate !== originalDateStr) {
-        // User changed the date — preserve the original time component
-        const orig = new Date(originalRunDate);
+      const origDate = new Date(originalRunDate);
+      const originalDateStr = origDate.toLocaleDateString("sv-SE");
+      const originalTimeStr =
+        String(origDate.getHours()).padStart(2, "0") + ":" + String(origDate.getMinutes()).padStart(2, "0");
+      const dateChanged = editDate !== originalDateStr;
+      const timeChanged = editTime !== originalTimeStr;
+      if (dateChanged || timeChanged) {
         const [year, month, day] = editDate.split("-").map(Number);
-        const updated = new Date(orig);
-        updated.setFullYear(year, month - 1, day);
-        runDate = updated.toISOString();
+        const [hours, minutes] = editTime.split(":").map(Number);
+        const local = new Date(year, month - 1, day, hours, minutes);
+        runDate = local.toISOString();
       }
 
       const payload: UpdateRunPayload = {
@@ -207,15 +215,27 @@ export function RunDetailPage() {
                 onChange={(e) => setEditTitle(e.target.value)}
               />
             </div>
-            <div className={shared.formGroup}>
-              <label className={shared.formLabel} htmlFor="editDate">Date</label>
-              <input
-                id="editDate"
-                className={shared.formInput}
-                type="date"
-                value={editDate}
-                onChange={(e) => setEditDate(e.target.value)}
-              />
+            <div className={styles.dateTimeRow}>
+              <div className={shared.formGroup}>
+                <label className={shared.formLabel} htmlFor="editDate">Date</label>
+                <input
+                  id="editDate"
+                  className={shared.formInput}
+                  type="date"
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                />
+              </div>
+              <div className={shared.formGroup}>
+                <label className={shared.formLabel} htmlFor="editTime">Time</label>
+                <input
+                  id="editTime"
+                  className={shared.formInput}
+                  type="time"
+                  value={editTime}
+                  onChange={(e) => setEditTime(e.target.value)}
+                />
+              </div>
             </div>
             <div className={shared.formGroup}>
               <label className={shared.formLabel} htmlFor="editDuration">Duration (HH:MM:SS)</label>
