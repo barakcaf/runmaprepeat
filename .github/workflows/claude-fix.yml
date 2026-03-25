@@ -42,6 +42,7 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - name: Run Claude Code
+        id: claude-fix
         uses: anthropics/claude-code-action@v1
         with:
           use_bedrock: "true"
@@ -49,3 +50,84 @@ jobs:
           github_token: ${{ steps.app-token.outputs.token }}
           trigger_phrase: "@claude"
           allowed_bots: "runmaprepeat-autofix[bot],github-actions[bot]"
+
+      - name: Gather fix summary
+        if: always()
+        id: summary
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const prNumber = context.payload.issue.number;
+            const prTitle = context.payload.issue.title;
+            const fixOutcome = '${{ steps.claude-fix.outcome }}';
+
+            const commentBody = context.payload.comment.body || '';
+            const cycleMatch = commentBody.match(/\[ai-fix-cycle-(\d+)\]/);
+            const cycle = cycleMatch ? cycleMatch[1] : '?';
+
+            const findingsMatch = commentBody.match(/Findings \(cycle \d+\/\d+\):\s*\n\n([\s\S]*)/);
+            const findingsText = findingsMatch ? findingsMatch[1] : '';
+            const highCount = (findingsText.match(/🟠/g) || []).length;
+            const mediumCount = (findingsText.match(/🟡/g) || []).length;
+            const totalFindings = highCount + mediumCount;
+
+            let filesChanged = 0;
+            let commitMsg = '';
+            if (fixOutcome === 'success') {
+              try {
+                const { data: pr } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                });
+                const { data: commits } = await github.rest.pulls.listCommits({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                  per_page: 5,
+                });
+                const latest = commits[commits.length - 1];
+                if (latest) {
+                  commitMsg = latest.commit.message.split('\n')[0];
+                  filesChanged = pr.changed_files;
+                }
+              } catch (e) {
+                console.log('Could not fetch PR details:', e.message);
+              }
+            }
+
+            let emoji, status, details;
+            if (fixOutcome === 'success') {
+              emoji = '🔧';
+              status = 'Auto-Fix Applied';
+              details = `Cycle ${cycle}: ${totalFindings} finding${totalFindings !== 1 ? 's' : ''} addressed`;
+              if (highCount > 0) details += ` (${highCount} HIGH, ${mediumCount} MEDIUM)`;
+              if (commitMsg) details += `\nCommit: ${commitMsg}`;
+              if (filesChanged > 0) details += `\nFiles changed: ${filesChanged}`;
+            } else {
+              emoji = '⚠️';
+              status = 'Auto-Fix Failed';
+              details = `Cycle ${cycle}: Claude could not resolve ${totalFindings} finding${totalFindings !== 1 ? 's' : ''}`;
+              if (highCount > 0) details += ` (${highCount} HIGH)`;
+            }
+
+            // Build the full message in JS to avoid shell injection
+            const prUrl = context.payload.issue.html_url;
+            const message = `${emoji} <b>${status}</b>: #${prNumber} — ${prTitle}\n${details}\n<a href="${prUrl}">View PR</a>`;
+            core.setOutput('message', message);
+
+      - name: Notify via Telegram
+        if: always() && steps.summary.outputs.message
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NOTIFY_MESSAGE: ${{ steps.summary.outputs.message }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d chat_id="${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text=${NOTIFY_MESSAGE}" \
+              -d parse_mode="HTML" \
+              -d disable_web_page_preview="true"
+          fi
