@@ -71,6 +71,11 @@ BOT_LOGIN = "github-actions[bot]"
 
 HTTP_TIMEOUT = 30  # seconds for all HTTP calls
 
+
+def _safe_log_url(url: str) -> str:
+    """Strip query parameters that might contain tokens."""
+    return url.split("?")[0] if "?" in url else url
+
 # ---------------------------------------------------------------------------
 # GitHub API helpers
 # ---------------------------------------------------------------------------
@@ -118,7 +123,7 @@ def gh_get_all(path: str) -> list:
                             url = match.group(1)
         except urllib.error.HTTPError as e:
             body = e.read().decode() if hasattr(e, "read") else ""
-            log.error("GET %s: %s %s — %s", url, e.code, e.reason, body[:500])
+            log.error("GET %s: %s %s — %s", _safe_log_url(url or ""), e.code, e.reason, body[:500])
             raise
     return results
 
@@ -297,7 +302,14 @@ def call_bedrock(prompt: str, retries: int = 3) -> str:
             return response["output"]["message"]["content"][0]["text"]
         except Exception as e:
             error_code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
-            if attempt < retries and error_code in ("ThrottlingException", "ServiceUnavailableException", "ModelTimeoutException"):
+            error_str = str(e).lower()
+            is_transient = (
+                error_code in ("ThrottlingException", "TooManyRequestsException",
+                               "ServiceUnavailableException", "ModelTimeoutException")
+                or "throttl" in error_str
+                or "429" in error_str
+            )
+            if attempt < retries and is_transient:
                 delay = 2 ** (attempt + 1)
                 log.warning("Bedrock %s (attempt %d/%d), retrying in %ds...", error_code, attempt + 1, retries, delay)
                 time.sleep(delay)
@@ -400,6 +412,10 @@ def _send_whatsapp(message: str) -> None:
     if not token or not phone_id or not to:
         log.warning("WhatsApp configured but WHATSAPP_TOKEN/WHATSAPP_PHONE_ID/WHATSAPP_TO missing")
         return
+    # Validate URL to prevent SSRF — only allow the official Meta Graph API
+    if not api_url.startswith("https://graph.facebook.com/"):
+        log.warning("WhatsApp API URL rejected — must start with https://graph.facebook.com/")
+        return
     try:
         data = json.dumps({
             "messaging_product": "whatsapp",
@@ -495,7 +511,11 @@ def main() -> None:
         log.error("Missing REPO_NAME or PR_NUMBER")
         sys.exit(1)
 
-    pr_number = int(pr_number_str)
+    try:
+        pr_number = int(pr_number_str)
+    except ValueError:
+        log.error("PR_NUMBER must be a valid integer, got: %s", pr_number_str)
+        sys.exit(1)
     log.info("Reviewing PR #%d in %s (model: %s)", pr_number, repo, MODEL_ID)
 
     pr = gh_get(f"/repos/{repo}/pulls/{pr_number}")
@@ -654,18 +674,24 @@ def main() -> None:
             for c in inline_comments:
                 review_body += f"\n- **{c['path']}** — {c['body'][:200]}...\n"
             review_payload["body"] = review_body
-            gh_post(f"/repos/{repo}/pulls/{pr_number}/reviews", review_payload)
+            try:
+                gh_post(f"/repos/{repo}/pulls/{pr_number}/reviews", review_payload)
+            except urllib.error.HTTPError:
+                log.error("Failed to post review even without inline comments")
+        else:
+            log.error("Failed to post review (no inline comments to strip)")
 
-    # Telegram
+    # Notification
+    tg_resolved = f" | 🔄 {resolved_count} resolved" if resolved_count > 0 else ""
     if findings:
         tg_counts = " ".join(f"{SEVERITY_EMOJI.get(s, '')} {c} {s}" for s, c in sorted(severity_counts.items(),
             key=lambda x: ["CRITICAL", "HIGH", "MEDIUM", "LOW"].index(x[0])
             if x[0] in ["CRITICAL", "HIGH", "MEDIUM", "LOW"] else 99))
         ready = " — ✅ Ready for Merge" if not has_blockers else ""
-        msg = f"🔍 <b>AI Review</b> — PR #{pr_number}{ready}\n{tg_counts}\n<a href=\"{pr['html_url']}\">{pr_title}</a>"
+        msg = f"🔍 <b>AI Review</b> — PR #{pr_number}{ready}\n{tg_counts}{tg_resolved}\n<a href=\"{pr['html_url']}\">{pr_title}</a>"
     else:
         ready = " — ✅ Ready for Merge" if not has_blockers else ""
-        msg = f"✅ <b>AI Review</b> — PR #{pr_number}{ready}\nNo issues\n<a href=\"{pr['html_url']}\">{pr_title}</a>"
+        msg = f"✅ <b>AI Review</b> — PR #{pr_number}{ready}\nNo issues{tg_resolved}\n<a href=\"{pr['html_url']}\">{pr_title}</a>"
     send_notification(msg)
 
     log.info("Done! Blockers: %s", has_blockers)
