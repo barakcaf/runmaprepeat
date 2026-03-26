@@ -14,6 +14,5 @@ globs: frontend/**
 - Use `const` by default, `let` only when mutation is needed
 
 ## Testing
-- Every new component needs Vitest unit tests + Playwright E2E for user flows
 - Run: `cd frontend && npm run test`
-- PRs without adequate test coverage will be rejected
+- Coverage requirements: see CLAUDE.md § Testing Requirements

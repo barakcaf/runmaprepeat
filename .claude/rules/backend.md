@@ -19,7 +19,5 @@ globs: backend/**
 - Type N sort keys need actual numbers, not strings
 
 ## Testing
-- Every handler needs pytest coverage: all HTTP methods, success/error/validation/edge cases
-- Target >90% handler coverage
 - Run: `cd backend && pytest -v`
-- PRs without adequate test coverage will be rejected
+- Coverage requirements: see CLAUDE.md § Testing Requirements
