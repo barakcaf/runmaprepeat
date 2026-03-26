@@ -1,7 +1,8 @@
-import os
 """Lambda handler for run CRUD operations."""
 
 from __future__ import annotations
+
+import os
 
 import json
 import logging
@@ -159,11 +160,15 @@ def _update_run(user_id: str, run_id: str | None, event: dict[str, Any]) -> dict
         return _error(400, "; ".join(errors))
 
     update_data: dict[str, Any] = {"updatedAt": datetime.now(timezone.utc).isoformat()}
+    remove_fields: list[str] = []
     for field in ("status", "runDate", "title", "route", "distanceMeters", "durationSeconds", "elevationGainMeters", "notes", "audio"):
         if field in body:
-            update_data[field] = body[field]
+            if body[field] is None:
+                remove_fields.append(field)
+            else:
+                update_data[field] = body[field]
 
-    result = update_run(user_id, run_id, update_data)
+    result = update_run(user_id, run_id, update_data, remove_fields=remove_fields)
     if result is None:
         return _error(404, "Run not found")
     return _success(result)
