@@ -20,6 +20,7 @@ import logging
 import os
 import re
 import sys
+import time
 import urllib.request
 import urllib.error
 import uuid
@@ -37,7 +38,7 @@ log = logging.getLogger(__name__)
 MAX_FILES = 15
 MAX_CHANGED_LINES = 1500
 MODEL_ID = "us.anthropic.claude-opus-4-6-v1"
-MAX_OUTPUT_TOKENS = 8192
+MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "16384"))
 
 SKIP_PATTERNS = (
     "cdk.out/", "node_modules/", "__pycache__/", "dist/", ".git/",
@@ -318,16 +319,42 @@ def _get_bedrock_client():
 
 
 def call_bedrock(prompt: str) -> str:
+    """Call Bedrock with exponential backoff retry logic.
+
+    Retries up to 3 times on throttling or transient errors:
+    - Attempt 1: immediate
+    - Attempt 2: 2 second delay
+    - Attempt 3: 4 second delay
+    - Attempt 4: 8 second delay
+    """
     client = _get_bedrock_client()
-    response = client.converse(
-        modelId=MODEL_ID,
-        messages=[{"role": "user", "content": [{"text": prompt}]}],
-        inferenceConfig={
-            "maxTokens": MAX_OUTPUT_TOKENS,
-            "temperature": 0.2,
-        },
-    )
-    return response["output"]["message"]["content"][0]["text"]
+    max_retries = 3
+    base_delay = 2
+
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.converse(
+                modelId=MODEL_ID,
+                messages=[{"role": "user", "content": [{"text": prompt}]}],
+                inferenceConfig={
+                    "maxTokens": MAX_OUTPUT_TOKENS,
+                    "temperature": 0.2,
+                },
+            )
+            return response["output"]["message"]["content"][0]["text"]
+        except Exception as e:
+            error_code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
+            is_retryable = error_code in ("ThrottlingException", "TooManyRequestsException") or \
+                          "throttl" in str(e).lower() or "429" in str(e)
+
+            if attempt < max_retries and is_retryable:
+                delay = base_delay * (2 ** attempt)
+                log.warning("Bedrock call failed (attempt %d/%d): %s. Retrying in %ds...",
+                           attempt + 1, max_retries + 1, e, delay)
+                time.sleep(delay)
+            else:
+                log.error("Bedrock call failed after %d attempts: %s", attempt + 1, e)
+                raise
 
 
 def parse_json_response(raw: str) -> dict:

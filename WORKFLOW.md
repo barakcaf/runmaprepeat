@@ -79,6 +79,12 @@ gh pr view <PR#> --json reviews --jq '.reviews[] | select(.author.login=="github
 - Squash merge preferred
 - Delete branch after merge
 
+### PR Labels
+- **`no-auto-fix`** — Disables automatic fix attempts by Claude Code. Add this label when:
+  - AI review findings are false positives
+  - Findings require manual intervention or architectural decisions
+  - You want to prevent auto-fix cycles from running
+
 ## Notifications
 - PR review results → GitHub webhook → Telegram
 - Pipeline success/failure → EventBridge → Lambda → Telegram
