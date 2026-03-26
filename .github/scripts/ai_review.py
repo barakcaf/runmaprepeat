@@ -412,10 +412,6 @@ def _send_whatsapp(message: str) -> None:
     if not token or not phone_id or not to:
         log.warning("WhatsApp configured but WHATSAPP_TOKEN/WHATSAPP_PHONE_ID/WHATSAPP_TO missing")
         return
-    # Validate URL to prevent SSRF — only allow the official Meta Graph API
-    if not api_url.startswith("https://graph.facebook.com/"):
-        log.warning("WhatsApp API URL rejected — must start with https://graph.facebook.com/")
-        return
     try:
         data = json.dumps({
             "messaging_product": "whatsapp",
