@@ -22,6 +22,7 @@ cd infra && pip install -r requirements.txt && cdk synth --quiet
 ```
 
 ## Key Rules
+- **Open a GitHub issue first** — every feature or bug fix starts with a tracked issue before any implementation. Include scope, design, and acceptance criteria. Reference the issue number in branch names and commits.
 - **Run tests before finishing** — always verify, never trust blindly
 - **All new code and bug fixes MUST have tests** — no exceptions. Bug fixes need a regression test that would have caught the original bug. "Tests pass" ≠ "new code is tested."
 - **Data layer changes need their own tests** — don't just mock at the handler level; test the actual functions that touch DynamoDB.
