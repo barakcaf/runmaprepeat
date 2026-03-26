@@ -1,7 +1,8 @@
-import os
 """Lambda handler for user profile CRUD operations."""
 
 from __future__ import annotations
+
+import os
 
 import json
 import logging

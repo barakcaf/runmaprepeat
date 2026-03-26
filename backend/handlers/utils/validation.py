@@ -89,7 +89,9 @@ def validate_run(body: dict[str, Any]) -> list[str]:
 
     if "audio" in body:
         audio = body["audio"]
-        if isinstance(audio, list):
+        if audio is None:
+            pass  # null means "clear audio" — skip validation
+        elif isinstance(audio, list):
             for i, item in enumerate(audio):
                 item_errors = validate_audio(item)
                 errors.extend(f"audio[{i}].{e.split('.', 1)[1]}" if '.' in e else e for e in item_errors)
