@@ -1,3 +1,41 @@
+/* Split-panel container: single column on mobile, two columns on desktop */
+.splitContainer {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 769px) {
+  .splitContainer {
+    grid-template-columns: 45% 55%;
+    min-height: calc(100vh - 80px);
+  }
+
+  .mapPanel {
+    order: 2;
+    position: sticky;
+    top: 0;
+    height: calc(100vh - 80px);
+    overflow: hidden;
+    border-left: 1px solid #e0e0e0;
+  }
+
+  .mapArea {
+    height: 100% !important;
+    min-height: unset !important;
+  }
+
+  .mapPlaceholder {
+    height: 100%;
+  }
+
+  .detailCard {
+    order: 1;
+    border-radius: 0;
+    margin-top: 0;
+    max-width: 640px;
+  }
+}
+
 .mapArea {
   height: 50vh;
   min-height: 300px;

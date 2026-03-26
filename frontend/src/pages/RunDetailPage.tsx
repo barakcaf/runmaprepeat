@@ -194,14 +194,17 @@ export function RunDetailPage() {
 
   return (
     <div className={shared.page}>
-      {run.route && run.route.length >= 2 ? (
-        <div className={styles.mapArea}>
-          <RouteMap route={run.route} height="100%" />
+      <div className={styles.splitContainer}>
+        <div className={styles.mapPanel}>
+          {run.route && run.route.length >= 2 ? (
+            <div className={styles.mapArea}>
+              <RouteMap route={run.route} height="100%" />
+            </div>
+          ) : (
+            <div className={styles.mapPlaceholder}>No route recorded</div>
+          )}
         </div>
-      ) : (
-        <div className={styles.mapPlaceholder}>No route recorded</div>
-      )}
-      <div className={styles.detailCard}>
+        <div className={styles.detailCard}>
         {error && <div className={shared.errorState}>{error}</div>}
 
         {editing ? (
@@ -405,6 +408,7 @@ export function RunDetailPage() {
             </div>
           </>
         )}
+        </div>
       </div>
     </div>
   );
