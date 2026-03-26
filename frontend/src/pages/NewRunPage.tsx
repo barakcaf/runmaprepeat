@@ -89,121 +89,123 @@ export function NewRunPage() {
 
   return (
     <div className={shared.page}>
-      <div className={styles.mapSection}>
-        <button
-          type="button"
-          className={styles.mapToggle}
-          onClick={() => setMapExpanded((prev) => !prev)}
-        >
-          {mapExpanded ? "Hide Map" : "Show Map"}
-          {distanceMeters > 0 && ` — ${formatDistance(distanceMeters)}`}
-        </button>
-        {mapExpanded && (
-          <div className={styles.mapArea}>
-            <RunMap onRouteChange={handleRouteChange} />
-          </div>
-        )}
-      </div>
-      <form className={styles.form} onSubmit={handleSubmit}>
-        <h2 className={styles.formTitle}>New Run</h2>
-
-        {error && <div className={shared.errorState}>{error}</div>}
-
-        <div className={shared.formGroup}>
-          <label className={shared.formLabel} htmlFor="title">Title</label>
-          <input
-            id="title"
-            className={shared.formInput}
-            type="text"
-            placeholder="Morning run"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
+      <div className={styles.splitContainer}>
+        <div className={styles.mapSection}>
+          <button
+            type="button"
+            className={styles.mapToggle}
+            onClick={() => setMapExpanded((prev) => !prev)}
+          >
+            {mapExpanded ? "Hide Map" : "Show Map"}
+            {distanceMeters > 0 && ` — ${formatDistance(distanceMeters)}`}
+          </button>
+          {mapExpanded && (
+            <div className={styles.mapArea}>
+              <RunMap onRouteChange={handleRouteChange} />
+            </div>
+          )}
         </div>
+        <form className={styles.form} onSubmit={handleSubmit}>
+          <h2 className={styles.formTitle}>New Run</h2>
 
-        <div className={shared.formGroup}>
-          <label className={shared.formLabel} htmlFor="date">Date</label>
-          <input
-            id="date"
-            className={shared.formInput}
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-        </div>
+          {error && <div className={shared.errorState}>{error}</div>}
 
-        <div className={shared.formGroup}>
-          <label className={shared.formLabel} htmlFor="time">Time</label>
-          <input
-            id="time"
-            className={shared.formInput}
-            type="time"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-          />
-        </div>
-
-        <div className={shared.formGroup}>
-          <label className={shared.formLabel}>Status</label>
-          <div className={shared.toggleGroup}>
-            <button
-              type="button"
-              className={status === "completed" ? shared.toggleOptionActive : shared.toggleOption}
-              onClick={() => setStatus("completed")}
-            >
-              Completed
-            </button>
-            <button
-              type="button"
-              className={status === "planned" ? shared.toggleOptionActive : shared.toggleOption}
-              onClick={() => setStatus("planned")}
-            >
-              Planned
-            </button>
-          </div>
-        </div>
-
-        {status === "completed" && (
           <div className={shared.formGroup}>
-            <label className={shared.formLabel} htmlFor="duration">
-              Duration (HH:MM:SS)
-            </label>
+            <label className={shared.formLabel} htmlFor="title">Title</label>
             <input
-              id="duration"
+              id="title"
               className={shared.formInput}
               type="text"
-              placeholder="0:32:15"
-              value={durationInput}
-              onChange={(e) => setDurationInput(e.target.value)}
+              placeholder="Morning run"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
             />
           </div>
-        )}
 
-        <div className={styles.audioSection}>
-          <div className={styles.audioSectionTitle}>Audio</div>
-          <SpotifySearch value={audio} onChange={setAudio} />
-        </div>
+          <div className={shared.formGroup}>
+            <label className={shared.formLabel} htmlFor="date">Date</label>
+            <input
+              id="date"
+              className={shared.formInput}
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
 
-        <div className={shared.formGroup}>
-          <label className={shared.formLabel} htmlFor="notes">Notes</label>
-          <textarea
-            id="notes"
-            className={shared.formTextarea}
-            placeholder="How did it go?"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </div>
+          <div className={shared.formGroup}>
+            <label className={shared.formLabel} htmlFor="time">Time</label>
+            <input
+              id="time"
+              className={shared.formInput}
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+            />
+          </div>
 
-        <button
-          type="submit"
-          className={shared.buttonPrimary}
-          disabled={saving}
-          style={{ width: "100%" }}
-        >
-          {saving ? "Saving..." : "Save Run"}
-        </button>
-      </form>
+          <div className={shared.formGroup}>
+            <label className={shared.formLabel}>Status</label>
+            <div className={shared.toggleGroup}>
+              <button
+                type="button"
+                className={status === "completed" ? shared.toggleOptionActive : shared.toggleOption}
+                onClick={() => setStatus("completed")}
+              >
+                Completed
+              </button>
+              <button
+                type="button"
+                className={status === "planned" ? shared.toggleOptionActive : shared.toggleOption}
+                onClick={() => setStatus("planned")}
+              >
+                Planned
+              </button>
+            </div>
+          </div>
+
+          {status === "completed" && (
+            <div className={shared.formGroup}>
+              <label className={shared.formLabel} htmlFor="duration">
+                Duration (HH:MM:SS)
+              </label>
+              <input
+                id="duration"
+                className={shared.formInput}
+                type="text"
+                placeholder="0:32:15"
+                value={durationInput}
+                onChange={(e) => setDurationInput(e.target.value)}
+              />
+            </div>
+          )}
+
+          <div className={styles.audioSection}>
+            <div className={styles.audioSectionTitle}>Audio</div>
+            <SpotifySearch value={audio} onChange={setAudio} />
+          </div>
+
+          <div className={shared.formGroup}>
+            <label className={shared.formLabel} htmlFor="notes">Notes</label>
+            <textarea
+              id="notes"
+              className={shared.formTextarea}
+              placeholder="How did it go?"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+
+          <button
+            type="submit"
+            className={shared.buttonPrimary}
+            disabled={saving}
+            style={{ width: "100%" }}
+          >
+            {saving ? "Saving..." : "Save Run"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
