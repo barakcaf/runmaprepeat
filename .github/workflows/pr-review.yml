@@ -276,6 +276,8 @@ jobs:
             const findings = process.env.FINDINGS_SUMMARY;
             const body = `@claude [ai-fix-cycle-${cycle}] Fix the following code review findings. ` +
               `Read .github/prompts/fix.md for detailed instructions.\n\n` +
+              `**Available tools:** Glob, Grep, LS, Read, Bash (git add, git commit, git push, git rm). ` +
+              `Use Bash to write/edit files (e.g. sed, cat, echo). Do NOT attempt to use Write or Edit tools — they are not available.\n\n` +
               `**Rules:**\n` +
               `- Read the PR description to understand the feature context before fixing\n` +
               `- Fix the source code, NOT the tests\n` +

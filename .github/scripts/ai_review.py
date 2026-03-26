@@ -1,16 +1,28 @@
-"""AI Code Review Agent — reviews PRs via Amazon Bedrock (Claude Opus 4.6).
+"""AI Code Review Agent — reviews PRs via Amazon Bedrock.
 
-Runs inside GitHub Actions. Posts inline comments + summary on the PR.
-On re-review (synchronize), reads existing comments and auto-resolves
-threads that have been fixed by the new push. Posts "✅ Ready for Merge"
-when no unresolved CRITICAL/HIGH issues remain.
+Repo-agnostic: reads review prompt from .github/prompts/review.md,
+config from environment variables. Posts inline comments + summary.
+On re-review (synchronize), auto-resolves fixed comment threads.
 
 Environment variables (set by workflow):
   GITHUB_TOKEN       — GitHub token with pull-requests:write
   PR_NUMBER          — PR number to review
   REPO_NAME          — owner/repo
-  TELEGRAM_BOT_TOKEN — (optional) Telegram bot token
-  TELEGRAM_CHAT_ID   — (optional) Telegram chat ID
+  MODEL_ID           — Bedrock model ID (default: us.anthropic.claude-opus-4-6-v1)
+  MAX_FILES          — Max files to review (default: 15)
+  MAX_CHANGED_LINES  — Max changed lines (default: 1500)
+  MAX_OUTPUT_TOKENS  — Max output tokens (default: 16384)
+  AWS_REGION         — AWS region (default: us-east-1)
+
+  Notifications (all optional — omit to disable):
+  NOTIFY_CHANNEL     — Channel type: telegram | slack | whatsapp | none (default: none)
+  TELEGRAM_BOT_TOKEN — Telegram bot token (when NOTIFY_CHANNEL=telegram)
+  TELEGRAM_CHAT_ID   — Telegram chat ID (when NOTIFY_CHANNEL=telegram)
+  SLACK_WEBHOOK_URL  — Slack incoming webhook URL (when NOTIFY_CHANNEL=slack)
+  WHATSAPP_API_URL   — WhatsApp Business API base URL (when NOTIFY_CHANNEL=whatsapp)
+  WHATSAPP_TOKEN     — WhatsApp API bearer token (when NOTIFY_CHANNEL=whatsapp)
+  WHATSAPP_PHONE_ID  — WhatsApp phone number ID (when NOTIFY_CHANNEL=whatsapp)
+  WHATSAPP_TO        — Recipient phone number in E.164 format (when NOTIFY_CHANNEL=whatsapp)
 """
 
 from __future__ import annotations
@@ -32,12 +44,12 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Config
+# Config (from environment)
 # ---------------------------------------------------------------------------
 
-MAX_FILES = 15
-MAX_CHANGED_LINES = 1500
-MODEL_ID = "us.anthropic.claude-opus-4-6-v1"
+MAX_FILES = int(os.environ.get("MAX_FILES", "15"))
+MAX_CHANGED_LINES = int(os.environ.get("MAX_CHANGED_LINES", "1500"))
+MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-opus-4-6-v1")
 MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "16384"))
 
 SKIP_PATTERNS = (
@@ -57,6 +69,13 @@ INLINE_SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM"}
 
 BOT_LOGIN = "github-actions[bot]"
 
+HTTP_TIMEOUT = 30  # seconds for all HTTP calls
+
+
+def _safe_log_url(url: str) -> str:
+    """Strip query parameters that might contain tokens."""
+    return url.split("?")[0] if "?" in url else url
+
 # ---------------------------------------------------------------------------
 # GitHub API helpers
 # ---------------------------------------------------------------------------
@@ -75,31 +94,25 @@ def gh_headers() -> dict[str, str]:
     }
 
 
-def _safe_log_url(url: str) -> str:
-    """Strip any query parameters that might contain tokens."""
-    return url.split("?")[0] if "?" in url else url
-
-
 def gh_get(path: str) -> dict | list:
     url = f"{GITHUB_API}{path}"
     req = urllib.request.Request(url, headers=gh_headers())
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body = e.read().decode() if hasattr(e, "read") else ""
-        log.error("GitHub API GET %s failed: %s %s — %s", _safe_log_url(url), e.code, e.reason, body[:500])
+        log.error("GET %s: %s %s — %s", path, e.code, e.reason, body[:500])
         raise
 
 
 def gh_get_all(path: str) -> list:
-    """Paginated GET — follows Link: next headers."""
     results: list = []
     url = f"{GITHUB_API}{path}"
     while url:
         req = urllib.request.Request(url, headers=gh_headers())
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
                 results.extend(json.loads(resp.read()))
                 link = resp.headers.get("Link", "")
                 url = None
@@ -110,7 +123,7 @@ def gh_get_all(path: str) -> list:
                             url = match.group(1)
         except urllib.error.HTTPError as e:
             body = e.read().decode() if hasattr(e, "read") else ""
-            log.error("GitHub API GET %s failed: %s %s — %s", _safe_log_url(url or ""), e.code, e.reason, body[:500])
+            log.error("GET %s: %s %s — %s", _safe_log_url(url or ""), e.code, e.reason, body[:500])
             raise
     return results
 
@@ -119,64 +132,55 @@ def gh_post(path: str, body: dict) -> dict:
     url = f"{GITHUB_API}{path}"
     data = json.dumps(body).encode()
     req = urllib.request.Request(url, data=data, headers={
-        **gh_headers(),
-        "Content-Type": "application/json",
+        **gh_headers(), "Content-Type": "application/json",
     })
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         error_body = e.read().decode() if hasattr(e, "read") else ""
-        log.error("GitHub API POST %s failed: %s %s — %s", _safe_log_url(url), e.code, e.reason, error_body[:500])
+        log.error("POST %s: %s %s — %s", path, e.code, e.reason, error_body[:500])
         raise
 
 
 def gh_graphql(query: str, variables: dict | None = None) -> dict:
-    """Execute a GitHub GraphQL query."""
     payload = {"query": query}
     if variables:
         payload["variables"] = variables
-    url = "https://api.github.com/graphql"
     data = json.dumps(payload).encode()
-    req = urllib.request.Request(url, data=data, headers={
-        **gh_headers(),
-        "Content-Type": "application/json",
-    })
+    req = urllib.request.Request(
+        "https://api.github.com/graphql", data=data,
+        headers={**gh_headers(), "Content-Type": "application/json"},
+    )
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
             result = json.loads(resp.read())
             if "errors" in result:
                 log.warning("GraphQL errors: %s", result["errors"])
             return result
     except urllib.error.HTTPError as e:
         body = e.read().decode() if hasattr(e, "read") else ""
-        log.error("GraphQL request failed: %s %s — %s", e.code, e.reason, body[:500])
+        log.error("GraphQL: %s %s — %s", e.code, e.reason, body[:500])
         raise
 
 
 def get_file_content(repo: str, path: str, ref: str) -> str | None:
-    """Fetch raw file content from GitHub."""
     try:
         url = f"{GITHUB_API}/repos/{repo}/contents/{path}?ref={ref}"
         req = urllib.request.Request(url, headers={
-            **gh_headers(),
-            "Accept": "application/vnd.github.raw+json",
+            **gh_headers(), "Accept": "application/vnd.github.raw+json",
         })
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
             return resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError:
         return None
 
 
 # ---------------------------------------------------------------------------
-# Existing comment helpers
+# Review thread helpers (GraphQL)
 # ---------------------------------------------------------------------------
 
 def fetch_review_threads(repo: str, pr_number: int) -> list[dict]:
-    """Fetch review threads with their resolved status using GraphQL.
-
-    Returns list of {thread_id, is_resolved, comments: [{id, node_id, body, path, line}]}
-    """
     owner, name = repo.split("/")
     query = """
     query($owner: String!, $name: String!, $pr: Int!, $cursor: String) {
@@ -188,14 +192,7 @@ def fetch_review_threads(repo: str, pr_number: int) -> list[dict]:
               id
               isResolved
               comments(first: 20) {
-                nodes {
-                  id
-                  databaseId
-                  body
-                  path
-                  line
-                  author { login }
-                }
+                nodes { id databaseId body path line author { login } }
               }
             }
           }
@@ -207,24 +204,16 @@ def fetch_review_threads(repo: str, pr_number: int) -> list[dict]:
     cursor = None
     while True:
         result = gh_graphql(query, {"owner": owner, "name": name, "pr": pr_number, "cursor": cursor})
-        data = result.get("data", {})
-        pr_data = data.get("repository", {}).get("pullRequest", {})
-        thread_data = pr_data.get("reviewThreads", {})
+        thread_data = result.get("data", {}).get("repository", {}).get("pullRequest", {}).get("reviewThreads", {})
         for node in thread_data.get("nodes", []):
             comments = node.get("comments", {}).get("nodes", [])
-            # Only include threads started by the bot
             if comments and comments[0].get("author", {}).get("login") == BOT_LOGIN:
                 threads.append({
                     "thread_id": node["id"],
                     "is_resolved": node["isResolved"],
                     "comments": [
-                        {
-                            "id": c["databaseId"],
-                            "node_id": c["id"],
-                            "body": c["body"],
-                            "path": c.get("path", ""),
-                            "line": c.get("line"),
-                        }
+                        {"id": c["databaseId"], "node_id": c["id"], "body": c["body"],
+                         "path": c.get("path", ""), "line": c.get("line")}
                         for c in comments
                     ],
                 })
@@ -237,7 +226,6 @@ def fetch_review_threads(repo: str, pr_number: int) -> list[dict]:
 
 
 def resolve_thread(thread_id: str) -> bool:
-    """Resolve a review thread using GraphQL."""
     mutation = """
     mutation($threadId: ID!) {
       resolveReviewThread(input: {threadId: $threadId}) {
@@ -247,13 +235,7 @@ def resolve_thread(thread_id: str) -> bool:
     """
     try:
         result = gh_graphql(mutation, {"threadId": thread_id})
-        resolved = (
-            result.get("data", {})
-            .get("resolveReviewThread", {})
-            .get("thread", {})
-            .get("isResolved", False)
-        )
-        return resolved
+        return result.get("data", {}).get("resolveReviewThread", {}).get("thread", {}).get("isResolved", False)
     except Exception as e:
         log.warning("Failed to resolve thread %s: %s", thread_id, e)
         return False
@@ -272,13 +254,6 @@ def should_skip(filename: str) -> bool:
 
 
 def parse_diff_line_map(patch: str) -> dict[int, int]:
-    """Map file line numbers to diff positions for inline comments.
-
-    GitHub's review comment API requires a `position` that is the line's
-    1-based index within the unified diff hunk (the patch text), NOT the
-    file line number. This function builds a mapping from file line numbers
-    to diff positions so we can place comments correctly.
-    """
     if not patch:
         return {}
     mapping: dict[int, int] = {}
@@ -287,11 +262,8 @@ def parse_diff_line_map(patch: str) -> dict[int, int]:
     for raw_line in patch.split("\n"):
         position += 1
         if raw_line.startswith("@@"):
-            hunk_match = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)", raw_line)
-            if hunk_match:
-                file_line = int(hunk_match.group(1)) - 1
-            else:
-                file_line = 0
+            match = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)", raw_line)
+            file_line = int(match.group(1)) - 1 if match else 0
             continue
         if raw_line.startswith("-"):
             continue
@@ -308,7 +280,6 @@ _bedrock_client = None
 
 
 def _get_bedrock_client():
-    """Return a cached Bedrock runtime client."""
     global _bedrock_client
     if _bedrock_client is None:
         _bedrock_client = boto3.client(
@@ -318,162 +289,162 @@ def _get_bedrock_client():
     return _bedrock_client
 
 
-def call_bedrock(prompt: str) -> str:
-    """Call Bedrock with exponential backoff retry logic.
-
-    Retries up to 3 times on throttling or transient errors:
-    - Attempt 1: immediate
-    - Attempt 2: 2 second delay
-    - Attempt 3: 4 second delay
-    - Attempt 4: 8 second delay
-    """
+def call_bedrock(prompt: str, retries: int = 3) -> str:
+    """Call Bedrock with exponential backoff on transient errors."""
     client = _get_bedrock_client()
-    max_retries = 3
-    base_delay = 2
-
-    for attempt in range(max_retries + 1):
+    for attempt in range(retries + 1):
         try:
             response = client.converse(
                 modelId=MODEL_ID,
                 messages=[{"role": "user", "content": [{"text": prompt}]}],
-                inferenceConfig={
-                    "maxTokens": MAX_OUTPUT_TOKENS,
-                    "temperature": 0.2,
-                },
+                inferenceConfig={"maxTokens": MAX_OUTPUT_TOKENS, "temperature": 0.2},
             )
             return response["output"]["message"]["content"][0]["text"]
         except Exception as e:
             error_code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
-            is_retryable = error_code in ("ThrottlingException", "TooManyRequestsException") or \
-                          "throttl" in str(e).lower() or "429" in str(e)
-
-            if attempt < max_retries and is_retryable:
-                delay = base_delay * (2 ** attempt)
-                log.warning("Bedrock call failed (attempt %d/%d): %s. Retrying in %ds...",
-                           attempt + 1, max_retries + 1, e, delay)
+            error_str = str(e).lower()
+            is_transient = (
+                error_code in ("ThrottlingException", "TooManyRequestsException",
+                               "ServiceUnavailableException", "ModelTimeoutException")
+                or "throttl" in error_str
+                or "429" in error_str
+            )
+            if attempt < retries and is_transient:
+                delay = 2 ** (attempt + 1)
+                log.warning("Bedrock %s (attempt %d/%d), retrying in %ds...", error_code, attempt + 1, retries, delay)
                 time.sleep(delay)
             else:
-                log.error("Bedrock call failed after %d attempts: %s", attempt + 1, e)
                 raise
 
 
 def parse_json_response(raw: str) -> dict:
-    """Parse JSON from model response, handling markdown code fences."""
     text = raw.strip()
-    # Try direct parse first
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    # Strip markdown code fences
     match = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
     if match:
         try:
             return json.loads(match.group(1).strip())
         except json.JSONDecodeError:
             pass
-    # Last resort: find first { to last }
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
         try:
             return json.loads(text[start:end + 1])
         except json.JSONDecodeError:
             pass
-    raise json.JSONDecodeError("Could not extract JSON from response", text, 0)
+    raise json.JSONDecodeError("Could not extract JSON", text, 0)
 
 
 # ---------------------------------------------------------------------------
-# Telegram
+# Notification (channel-agnostic)
 # ---------------------------------------------------------------------------
 
-def send_telegram(message: str) -> None:
+NOTIFY_CHANNEL = os.environ.get("NOTIFY_CHANNEL", "none").lower()
+
+
+def send_notification(message: str, plain_text: str = "") -> None:
+    """Send notification via configured channel.
+
+    Args:
+        message: HTML-formatted message (used by Telegram).
+        plain_text: Plain text fallback (used by Slack). Defaults to message stripped of HTML.
+    """
+    if NOTIFY_CHANNEL == "telegram":
+        _send_telegram(message)
+    elif NOTIFY_CHANNEL == "slack":
+        _send_slack(plain_text or _strip_html(message))
+    elif NOTIFY_CHANNEL == "whatsapp":
+        _send_whatsapp(plain_text or _strip_html(message))
+    # "none" or unrecognized — silently skip
+
+
+def _strip_html(html: str) -> str:
+    """Crude HTML tag removal for plain text fallback."""
+    return re.sub(r"<[^>]+>", "", html)
+
+
+def _send_telegram(message: str) -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
     if not token or not chat_id:
-        log.info("Telegram not configured, skipping notification")
+        log.warning("Telegram configured but TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID missing")
         return
     try:
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
         data = json.dumps({
-            "chat_id": chat_id,
-            "text": message,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True,
+            "chat_id": chat_id, "text": message,
+            "parse_mode": "HTML", "disable_web_page_preview": True,
         }).encode()
-        req = urllib.request.Request(url, data=data, headers={
-            "Content-Type": "application/json",
-        })
-        urllib.request.urlopen(req)
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=data, headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=HTTP_TIMEOUT)
     except Exception as e:
-        log.warning("Telegram notification failed: %s", e)
+        # Never log the full exception — it may contain the bot token URL
+        log.warning("Telegram notification failed (check token/chat_id config)")
+
+
+def _send_slack(message: str) -> None:
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
+    if not webhook_url:
+        log.warning("Slack configured but SLACK_WEBHOOK_URL missing")
+        return
+    try:
+        data = json.dumps({"text": message}).encode()
+        req = urllib.request.Request(
+            webhook_url, data=data,
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=HTTP_TIMEOUT)
+    except Exception as e:
+        # Never log full exception — may contain webhook URL with secrets
+        log.warning("Slack notification failed (check SLACK_WEBHOOK_URL config)")
+
+
+def _send_whatsapp(message: str) -> None:
+    api_url = os.environ.get("WHATSAPP_API_URL", "https://graph.facebook.com/v21.0")
+    token = os.environ.get("WHATSAPP_TOKEN", "")
+    phone_id = os.environ.get("WHATSAPP_PHONE_ID", "")
+    to = os.environ.get("WHATSAPP_TO", "")
+    if not token or not phone_id or not to:
+        log.warning("WhatsApp configured but WHATSAPP_TOKEN/WHATSAPP_PHONE_ID/WHATSAPP_TO missing")
+        return
+    try:
+        data = json.dumps({
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "text",
+            "text": {"body": message},
+        }).encode()
+        req = urllib.request.Request(
+            f"{api_url}/{phone_id}/messages",
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            },
+        )
+        urllib.request.urlopen(req, timeout=HTTP_TIMEOUT)
+    except Exception as e:
+        # Never log full exception — may contain bearer token
+        log.warning("WhatsApp notification failed (check WHATSAPP_TOKEN/PHONE_ID config)")
 
 
 # ---------------------------------------------------------------------------
-# Comment resolution logic
+# Comment resolution
 # ---------------------------------------------------------------------------
 
-def build_resolution_prompt(
-    unresolved_threads: list[dict],
-    file_contents: dict[str, str],
-) -> str:
-    """Build a prompt asking the LLM which prior comments have been fixed."""
-    prompt = (
-        "You are reviewing whether previous code review comments have been "
-        "addressed by the current version of the code.\n\n"
-        "For each comment below, check if the issue described has been fixed "
-        "in the current code. Respond with JSON only:\n\n"
-        "```json\n"
-        '{"resolutions": [\n'
-        '  {"thread_id": "<thread_id>", "resolved": true, "reason": "Brief explanation"},\n'
-        '  ...\n'
-        "]}\n"
-        "```\n\n"
-        "Rules:\n"
-        "- resolved=true means the issue is FIXED in the current code\n"
-        "- resolved=false means the issue STILL EXISTS\n"
-        "- Be conservative: only mark resolved if you're confident the fix is correct\n\n"
-        "---\n\n"
-    )
-
-    for thread in unresolved_threads:
-        first_comment = thread["comments"][0]
-        path = first_comment.get("path", "unknown")
-        line = first_comment.get("line", "?")
-        body = first_comment["body"][:500]
-
-        prompt += f"### Thread: {thread['thread_id']}\n"
-        prompt += f"**File:** `{path}` **Line:** {line}\n"
-        prompt += f"**Comment:** {body}\n\n"
-
-        # Include current file content if available
-        if path in file_contents:
-            prompt += f"**Current file content:**\n```\n{file_contents[path]}\n```\n\n"
-        else:
-            prompt += "*(File not found in current version)*\n\n"
-
-    return prompt
-
-
-def resolve_fixed_comments(
-    repo: str,
-    pr_number: int,
-    head_sha: str,
-) -> tuple[int, int]:
-    """Check unresolved bot threads and resolve those that are fixed.
-
-    Returns (resolved_count, still_open_count).
-    """
+def resolve_fixed_comments(repo: str, pr_number: int, head_sha: str) -> tuple[int, int]:
     threads = fetch_review_threads(repo, pr_number)
     unresolved = [t for t in threads if not t["is_resolved"]]
-
     if not unresolved:
-        log.info("No unresolved bot review threads found")
         return 0, 0
 
     log.info("Found %d unresolved bot review threads", len(unresolved))
 
-    # Fetch current file contents for files referenced in comments
     referenced_files: set[str] = set()
     for thread in unresolved:
         for comment in thread["comments"]:
@@ -486,39 +457,43 @@ def resolve_fixed_comments(
         if content:
             file_contents[filepath] = content
 
-    # Ask LLM which comments are fixed
-    prompt = build_resolution_prompt(unresolved, file_contents)
-    log.info("Asking Bedrock to check %d unresolved comments...", len(unresolved))
-    raw = call_bedrock(prompt)
+    prompt = (
+        "You are checking whether previous code review comments have been fixed.\n\n"
+        "For each comment, check the current code. Respond with JSON only:\n"
+        '{"resolutions": [{"thread_id": "<id>", "resolved": true/false, "reason": "brief"}]}\n\n'
+        "Be conservative: only resolved=true if confident the fix is correct.\n\n---\n\n"
+    )
+    for thread in unresolved:
+        c = thread["comments"][0]
+        path, line = c.get("path", "?"), c.get("line", "?")
+        prompt += f"### Thread: {thread['thread_id']}\n**File:** `{path}` **Line:** {line}\n"
+        prompt += f"**Comment:** {c['body'][:500]}\n\n"
+        if path in file_contents:
+            # Send only ±30 lines around the flagged line to avoid blowing context
+            content = file_contents[path]
+            if isinstance(line, int) and line > 0:
+                lines = content.split("\n")
+                start = max(0, line - 31)
+                end = min(len(lines), line + 30)
+                snippet = "\n".join(f"{i+1}: {l}" for i, l in enumerate(lines[start:end], start=start))
+                prompt += f"**Current code (lines {start+1}-{end}):**\n```\n{snippet}\n```\n\n"
+            else:
+                prompt += f"**Current code:**\n```\n{content[:3000]}\n```\n\n"
 
+    raw = call_bedrock(prompt)
     try:
         result = parse_json_response(raw)
     except json.JSONDecodeError:
-        log.warning("Could not parse resolution response, skipping auto-resolve")
         return 0, len(unresolved)
 
-    resolutions = result.get("resolutions", [])
+    known_ids = {t["thread_id"] for t in unresolved}
     resolved_count = 0
-
-    # Build set of known thread IDs for validation
-    known_thread_ids = {t["thread_id"] for t in unresolved}
-
-    for res in resolutions:
-        if res.get("resolved"):
-            thread_id = res.get("thread_id", "")
-            if thread_id not in known_thread_ids:
-                log.warning("LLM returned unknown thread_id %s, skipping", thread_id)
-                continue
-            reason = res.get("reason", "Fixed by new changes")
-            if resolve_thread(thread_id):
-                log.info("Resolved thread %s: %s", thread_id, reason)
+    for res in result.get("resolutions", []):
+        if res.get("resolved") and res.get("thread_id") in known_ids:
+            if resolve_thread(res["thread_id"]):
                 resolved_count += 1
-            else:
-                log.warning("Failed to resolve thread %s", thread_id)
 
-    still_open = len(unresolved) - resolved_count
-    log.info("Resolved %d threads, %d still open", resolved_count, still_open)
-    return resolved_count, still_open
+    return resolved_count, len(unresolved) - resolved_count
 
 
 # ---------------------------------------------------------------------------
@@ -526,12 +501,10 @@ def resolve_fixed_comments(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    # Validate required environment variables
     repo = os.environ.get("REPO_NAME")
     pr_number_str = os.environ.get("PR_NUMBER")
-
     if not repo or not pr_number_str:
-        log.error("Missing required environment variables: REPO_NAME, PR_NUMBER")
+        log.error("Missing REPO_NAME or PR_NUMBER")
         sys.exit(1)
 
     try:
@@ -539,199 +512,134 @@ def main() -> None:
     except ValueError:
         log.error("PR_NUMBER must be a valid integer, got: %s", pr_number_str)
         sys.exit(1)
+    log.info("Reviewing PR #%d in %s (model: %s)", pr_number, repo, MODEL_ID)
 
-    log.info("Reviewing PR #%d in %s", pr_number, repo)
-
-    # 1. Fetch PR metadata
     pr = gh_get(f"/repos/{repo}/pulls/{pr_number}")
-    pr_title = pr["title"]
-    pr_body = (pr.get("body") or "")[:500]
-    pr_author = pr["user"]["login"]
-    head_sha = pr["head"]["sha"]
+    pr_title, pr_body = pr["title"], (pr.get("body") or "")[:500]
+    pr_author, head_sha = pr["user"]["login"], pr["head"]["sha"]
 
-    # 2. Resolve previously-flagged comments that are now fixed
-    resolved_count, still_open_count = resolve_fixed_comments(repo, pr_number, head_sha)
+    resolved_count, still_open = resolve_fixed_comments(repo, pr_number, head_sha)
 
-    # 3. Fetch changed files
     files = gh_get_all(f"/repos/{repo}/pulls/{pr_number}/files")
-    log.info("PR has %d changed files", len(files))
-
-    # 4. Filter
     code_files = [f for f in files if not should_skip(f["filename"])]
     changed_lines = count_changed_lines(code_files)
-    log.info("After filtering: %d files, %d changed lines", len(code_files), changed_lines)
 
-    # 5. Bail on large PRs
     if len(code_files) > MAX_FILES or changed_lines > MAX_CHANGED_LINES:
-        bail_body = (
-            f"## 🤖 AI Code Review\n\n"
-            f"This PR is too large for automated review "
-            f"({len(code_files)} files, {changed_lines} changed lines).\n\n"
-            f"**Limits:** {MAX_FILES} files / {MAX_CHANGED_LINES} lines.\n\n"
-            f"Consider splitting into smaller, focused PRs for better review coverage."
-        )
         gh_post(f"/repos/{repo}/pulls/{pr_number}/reviews", {
-            "body": bail_body,
+            "body": f"## 🤖 AI Code Review\n\nPR too large ({len(code_files)} files, {changed_lines} lines). "
+                    f"Limits: {MAX_FILES} files / {MAX_CHANGED_LINES} lines. Consider splitting.",
             "event": "COMMENT",
         })
-        send_telegram(
-            f"🤖 AI Review skipped PR #{pr_number} — too large "
-            f"({len(code_files)} files, {changed_lines} lines)\n"
-            f"<a href=\"{pr['html_url']}\">{pr_title}</a>"
-        )
-        log.info("PR too large, posted bail message")
+        send_notification(f"🤖 AI Review skipped PR #{pr_number} — too large\n<a href=\"{pr['html_url']}\">{pr_title}</a>")
         return
 
     if not code_files:
-        log.info("No reviewable code files, skipping")
+        log.info("No reviewable files, skipping")
         return
 
-    # 6. Build prompt
-    prompt_template = Path(__file__).parent.parent.joinpath(
-        "prompts", "review.md"
-    ).read_text()
+    # Load review prompt
+    prompt_path = Path(__file__).parent.parent / "prompts" / "review.md"
+    if not prompt_path.exists():
+        log.error("Review prompt not found: %s", prompt_path)
+        sys.exit(1)
+    prompt_template = prompt_path.read_text()
 
     file_context = []
     diff_maps: dict[str, dict[int, int]] = {}
-
     for f in code_files:
         filename = f["filename"]
         patch = f.get("patch", "")
-        full_content = get_file_content(repo, filename, head_sha) or "(file not found)"
-
+        full_content = get_file_content(repo, filename, head_sha) or "(not found)"
         diff_maps[filename] = parse_diff_line_map(patch)
-
         file_context.append(
-            f"### {filename}\n\n"
-            f"**Diff:**\n```diff\n{patch}\n```\n\n"
+            f"### {filename}\n\n**Diff:**\n```diff\n{patch}\n```\n\n"
             f"**Full file:**\n```\n{full_content}\n```\n"
         )
 
     prompt = (
-        f"{prompt_template}\n\n"
-        f"---\n\n"
-        f"## PR Under Review\n\n"
-        f"**Title:** {pr_title}\n"
-        f"**Author:** {pr_author}\n"
-        f"**Description:** {pr_body}\n\n"
-        f"---\n\n"
-        f"## Changed Files\n\n"
-        + "\n".join(file_context)
+        f"{prompt_template}\n\n---\n\n## PR Under Review\n\n"
+        f"**Title:** {pr_title}\n**Author:** {pr_author}\n**Description:** {pr_body}\n\n"
+        f"---\n\n## Changed Files\n\n" + "\n".join(file_context)
     )
 
-    # 7. Call Bedrock for review
-    log.info("Calling Bedrock (%s) for code review...", MODEL_ID)
+    log.info("Calling Bedrock for review...")
     raw_response = call_bedrock(prompt)
 
     try:
         review = parse_json_response(raw_response)
-    except json.JSONDecodeError as e:
-        log.error("Failed to parse Bedrock response as JSON: %s", e)
-        log.error("Raw response:\n%s", raw_response[:2000])
+    except json.JSONDecodeError:
+        log.error("Failed to parse review response")
         gh_post(f"/repos/{repo}/pulls/{pr_number}/reviews", {
-            "body": "## 🤖 AI Code Review\n\n⚠️ Review failed — could not parse model response. Check workflow logs.",
+            "body": "## 🤖 AI Code Review\n\n⚠️ Review failed — could not parse model response.",
             "event": "COMMENT",
         })
         sys.exit(1)
 
-    # 8. Process findings
     findings = review.get("findings", [])
-    summary_text = review.get("summary", "No summary provided.")
+    summary_text = review.get("summary", "No summary.")
     highlights = review.get("highlights", [])
     pr_type = review.get("pr_type", "unknown")
-
-    log.info("Review complete: %s, %d findings", pr_type, len(findings))
 
     severity_counts: dict[str, int] = {}
     for f in findings:
         sev = f.get("severity", "LOW")
         severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
-    # Build inline comments (CRITICAL/HIGH/MEDIUM only)
-    inline_comments = []
-    low_findings = []
-
+    inline_comments, low_findings = [], []
     for finding in findings:
         severity = finding.get("severity", "LOW")
         emoji = SEVERITY_EMOJI.get(severity, "📝")
-        title = finding.get("title", "Issue found")
-        body = finding.get("body", "")
-        suggestion = finding.get("suggestion", "")
-        filename = finding.get("file", "")
+        title, body_text = finding.get("title", "Issue"), finding.get("body", "")
+        suggestion, filename = finding.get("suggestion", ""), finding.get("file", "")
         line = finding.get("line", 0)
 
-        comment_body = f"{emoji} **{severity}: {title}**\n\n{body}"
+        comment_body = f"{emoji} **{severity}: {title}**\n\n{body_text}"
         if suggestion:
             comment_body += f"\n\n**Fix:**\n```suggestion\n{suggestion}\n```"
 
         if severity in INLINE_SEVERITIES and filename and line:
-            diff_map = diff_maps.get(filename, {})
-            position = diff_map.get(line)
-
+            position = diff_maps.get(filename, {}).get(line)
             if position:
-                inline_comments.append({
-                    "path": filename,
-                    "position": position,
-                    "body": comment_body,
-                })
+                inline_comments.append({"path": filename, "position": position, "body": comment_body})
             else:
-                low_findings.append(
-                    f"- {emoji} **{title}** — `{filename}:{line}` — {body}"
-                )
+                low_findings.append(f"- {emoji} **{title}** — `{filename}:{line}` — {body_text}")
         else:
-            low_findings.append(
-                f"- {emoji} **{title}** — `{filename}:{line}` — {body}"
-            )
+            low_findings.append(f"- {emoji} **{title}** — `{filename}:{line}` — {body_text}")
 
-    # 9. Build review body
-    review_body = f"## 🤖 AI Code Review — #{pr_number}: {pr_title}\n\n"
-    review_body += f"*Type: {pr_type}*\n\n"
-    review_body += f"{summary_text}\n\n"
+    # Build review body
+    review_body = f"## 🤖 AI Code Review — #{pr_number}: {pr_title}\n\n*Type: {pr_type}*\n\n{summary_text}\n\n"
 
     if highlights:
-        review_body += "### 🟢 Highlights\n"
-        for h in highlights:
-            review_body += f"- {h}\n"
-        review_body += "\n"
+        review_body += "### 🟢 Highlights\n" + "".join(f"- {h}\n" for h in highlights) + "\n"
 
-    # Resolution summary (if any comments were processed)
-    if resolved_count > 0 or still_open_count > 0:
+    if resolved_count > 0 or still_open > 0:
         review_body += "### 🔄 Previous Comments\n"
         if resolved_count > 0:
-            review_body += f"- ✅ **{resolved_count}** comment(s) auto-resolved (fixed by this push)\n"
-        if still_open_count > 0:
-            review_body += f"- ⏳ **{still_open_count}** comment(s) still unresolved\n"
+            review_body += f"- ✅ **{resolved_count}** auto-resolved\n"
+        if still_open > 0:
+            review_body += f"- ⏳ **{still_open}** still unresolved\n"
         review_body += "\n"
 
-    # New findings summary
     if findings:
         counts_str = ", ".join(
             f"{count} {SEVERITY_EMOJI.get(sev, '')} {sev}"
-            for sev, count in sorted(
-                severity_counts.items(),
+            for sev, count in sorted(severity_counts.items(),
                 key=lambda x: ["CRITICAL", "HIGH", "MEDIUM", "LOW"].index(x[0])
-                if x[0] in ["CRITICAL", "HIGH", "MEDIUM", "LOW"] else 99,
-            )
+                if x[0] in ["CRITICAL", "HIGH", "MEDIUM", "LOW"] else 99)
         )
-        review_body += f"### Findings: {counts_str}\n"
-        review_body += "See inline comments for details.\n\n"
+        review_body += f"### Findings: {counts_str}\nSee inline comments.\n\n"
     else:
         review_body += "### ✅ No new issues found\n\n"
 
     if low_findings:
-        review_body += "### Low Priority / Out-of-Diff\n"
-        for lf in low_findings:
-            review_body += f"{lf}\n"
-        review_body += "\n"
+        review_body += "### Low Priority / Out-of-Diff\n" + "".join(f"{lf}\n" for lf in low_findings) + "\n"
 
-    # 10. Determine if ready for merge
-    has_blockers = (
-        severity_counts.get("CRITICAL", 0) > 0
-        or severity_counts.get("HIGH", 0) > 0
-        or still_open_count > 0
-    )
+    # Blockers = new CRITICAL/HIGH findings OR unresolved threads from previous reviews.
+    # Unresolved prior threads count as blockers because they represent issues the reviewer
+    # flagged that haven't been addressed yet. This is intentional — force resolution.
+    has_blockers = severity_counts.get("CRITICAL", 0) > 0 or severity_counts.get("HIGH", 0) > 0 or still_open > 0
 
-    # 10a. Write GitHub Actions outputs for downstream jobs (e.g., fix agent)
+    # GitHub Actions outputs
     gh_output = os.environ.get("GITHUB_OUTPUT")
     if gh_output:
         findings_summary = "\n".join(
@@ -741,22 +649,14 @@ def main() -> None:
         )
         with open(gh_output, "a") as fh:
             fh.write(f"has_findings={'true' if has_blockers else 'false'}\n")
-            # Multi-line outputs use delimiter syntax — unique per output
-            delim1 = f"ghadelim_{uuid.uuid4().hex[:8]}"
-            delim2 = f"ghadelim_{uuid.uuid4().hex[:8]}"
-            fh.write(f"findings_json<<{delim1}\n{json.dumps(findings)}\n{delim1}\n")
-            fh.write(f"findings_summary<<{delim2}\n{findings_summary}\n{delim2}\n")
-        log.info("Wrote GitHub Actions outputs: has_findings=%s", has_blockers)
+            d1, d2 = f"ghadelim_{uuid.uuid4().hex[:8]}", f"ghadelim_{uuid.uuid4().hex[:8]}"
+            fh.write(f"findings_json<<{d1}\n{json.dumps(findings)}\n{d1}\n")
+            fh.write(f"findings_summary<<{d2}\n{findings_summary}\n{d2}\n")
 
     if not has_blockers:
-        review_body += "---\n\n## ✅ Ready for Merge\n\n"
-        review_body += "No unresolved CRITICAL/HIGH findings. This PR is ready for human approval.\n"
+        review_body += "---\n\n## ✅ Ready for Merge\n\nNo unresolved blocking findings.\n"
 
-    # 11. Post review
-    review_payload: dict = {
-        "body": review_body,
-        "event": "COMMENT",
-    }
+    review_payload: dict = {"body": review_body, "event": "COMMENT"}
     if inline_comments:
         review_payload["comments"] = inline_comments
 
@@ -764,44 +664,33 @@ def main() -> None:
         gh_post(f"/repos/{repo}/pulls/{pr_number}/reviews", review_payload)
         log.info("Posted review with %d inline comments", len(inline_comments))
     except urllib.error.HTTPError:
-        # Retry without inline comments (position mapping can fail)
         if inline_comments:
-            log.info("Retrying without inline comments...")
             review_payload.pop("comments", None)
-            review_body += "\n\n*⚠️ Inline comments could not be placed — findings listed above.*\n"
+            review_body += "\n*⚠️ Inline comments could not be placed.*\n"
             for c in inline_comments:
                 review_body += f"\n- **{c['path']}** — {c['body'][:200]}...\n"
             review_payload["body"] = review_body
-            gh_post(f"/repos/{repo}/pulls/{pr_number}/reviews", review_payload)
-            log.info("Posted review as summary-only (fallback)")
+            try:
+                gh_post(f"/repos/{repo}/pulls/{pr_number}/reviews", review_payload)
+            except urllib.error.HTTPError:
+                log.error("Failed to post review even without inline comments")
+        else:
+            log.error("Failed to post review (no inline comments to strip)")
 
-    # 12. Telegram notification
+    # Notification
     tg_resolved = f" | 🔄 {resolved_count} resolved" if resolved_count > 0 else ""
     if findings:
-        tg_counts = " ".join(
-            f"{SEVERITY_EMOJI.get(sev, '')} {count} {sev}"
-            for sev, count in sorted(
-                severity_counts.items(),
-                key=lambda x: ["CRITICAL", "HIGH", "MEDIUM", "LOW"].index(x[0])
-                if x[0] in ["CRITICAL", "HIGH", "MEDIUM", "LOW"] else 99,
-            )
-        )
-        ready_tag = " — ✅ Ready for Merge" if not has_blockers else ""
-        tg_msg = (
-            f"🔍 <b>AI Review</b> — PR #{pr_number}{ready_tag}\n"
-            f"{tg_counts}{tg_resolved}\n"
-            f"<a href=\"{pr['html_url']}\">{pr_title}</a>"
-        )
+        tg_counts = " ".join(f"{SEVERITY_EMOJI.get(s, '')} {c} {s}" for s, c in sorted(severity_counts.items(),
+            key=lambda x: ["CRITICAL", "HIGH", "MEDIUM", "LOW"].index(x[0])
+            if x[0] in ["CRITICAL", "HIGH", "MEDIUM", "LOW"] else 99))
+        ready = " — ✅ Ready for Merge" if not has_blockers else ""
+        msg = f"🔍 <b>AI Review</b> — PR #{pr_number}{ready}\n{tg_counts}{tg_resolved}\n<a href=\"{pr['html_url']}\">{pr_title}</a>"
     else:
-        ready_tag = " — ✅ Ready for Merge" if not has_blockers else ""
-        tg_msg = (
-            f"✅ <b>AI Review</b> — PR #{pr_number}{ready_tag}\n"
-            f"No new issues{tg_resolved}\n"
-            f"<a href=\"{pr['html_url']}\">{pr_title}</a>"
-        )
-    send_telegram(tg_msg)
+        ready = " — ✅ Ready for Merge" if not has_blockers else ""
+        msg = f"✅ <b>AI Review</b> — PR #{pr_number}{ready}\nNo issues{tg_resolved}\n<a href=\"{pr['html_url']}\">{pr_title}</a>"
+    send_notification(msg)
 
-    log.info("Done! Ready for merge: %s", not has_blockers)
+    log.info("Done! Blockers: %s", has_blockers)
 
 
 if __name__ == "__main__":
