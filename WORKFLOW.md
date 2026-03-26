@@ -13,9 +13,11 @@
 ```
 1. Barak requests a feature/fix
         ↓
-2. Loki breaks it into tasks, spawns Claude Code
+2. Loki opens a GitHub issue describing the scope, design, and acceptance criteria
         ↓
-3. Claude Code implements on a feature branch, commits + pushes
+3. Loki breaks it into tasks, spawns Claude Code (referencing the issue number)
+        ↓
+4. Claude Code implements on a feature branch, commits + pushes
         ↓
 4. Loki opens PR (or Claude Code does via gh cli)
         ↓

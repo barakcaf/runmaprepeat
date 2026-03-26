@@ -286,3 +286,59 @@ def test_create_run_with_audio_no_source_passes_validation(mock_create: object, 
     )
     response = handler(event, None)
     assert response["statusCode"] == 201
+
+
+@patch("handlers.runs.update_run")
+def test_update_run_with_audio_null_succeeds(mock_update: object) -> None:
+    """PUT /runs/{id} with audio:null should succeed (clear audio)."""
+    mock_update.return_value = {"runId": "ABC", "title": "Morning run"}
+    event = _make_event(
+        "PUT", "/runs/{runId}", body={"audio": None}, run_id="ABC"
+    )
+    response = handler(event, None)
+    assert response["statusCode"] == 200
+    mock_update.assert_called_once()
+    _, kwargs = mock_update.call_args
+    assert "audio" not in kwargs.get("update_data", mock_update.call_args[0][2] if len(mock_update.call_args[0]) > 2 else {})
+
+
+@patch("handlers.runs.update_run")
+def test_update_run_with_audio_null_passes_remove_fields(mock_update: object) -> None:
+    """PUT /runs/{id} with audio:null passes remove_fields=['audio'] to data layer."""
+    mock_update.return_value = {"runId": "ABC", "title": "Morning run"}
+    event = _make_event(
+        "PUT", "/runs/{runId}", body={"audio": None}, run_id="ABC"
+    )
+    handler(event, None)
+    call_kwargs = mock_update.call_args
+    assert call_kwargs[1]["remove_fields"] == ["audio"]
+
+
+@patch("handlers.runs.update_run")
+def test_update_run_with_valid_audio_array(mock_update: object) -> None:
+    """PUT /runs/{id} with valid audio array still works."""
+    audio_list = [
+        {
+            "source": "spotify",
+            "spotifyId": "abc123",
+            "type": "track",
+            "name": "Song",
+            "spotifyUrl": "https://open.spotify.com/track/abc123",
+        }
+    ]
+    mock_update.return_value = {"runId": "ABC", "audio": audio_list}
+    event = _make_event(
+        "PUT", "/runs/{runId}", body={"audio": audio_list}, run_id="ABC"
+    )
+    response = handler(event, None)
+    assert response["statusCode"] == 200
+
+
+def test_update_run_with_invalid_audio_string_fails() -> None:
+    """PUT /runs/{id} with audio as a string should fail validation."""
+    event = _make_event(
+        "PUT", "/runs/{runId}", body={"audio": "not-valid"}, run_id="ABC"
+    )
+    response = handler(event, None)
+    assert response["statusCode"] == 400
+    assert "audio must be an object" in json.loads(response["body"])["error"]
