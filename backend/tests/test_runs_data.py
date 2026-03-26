@@ -179,6 +179,55 @@ def test_round_trip_create_then_get(mock_get_table: MagicMock) -> None:
 
 
 @patch("data.runs.get_table")
+def test_update_run_removes_fields(mock_get_table: MagicMock) -> None:
+    """update_run with remove_fields removes the specified keys from the stored item."""
+    mock_table = MagicMock()
+    mock_table.get_item.return_value = {
+        "Item": {
+            "userId": "user-1",
+            "sk": "RUN#run-1",
+            "status": "completed",
+            "audio": {"source": "spotify", "name": "Dua Lipa"},
+        }
+    }
+    mock_get_table.return_value = mock_table
+
+    result = update_run("user-1", "run-1", {"updatedAt": "2024-01-15T09:00:00Z"}, remove_fields=["audio"])
+
+    # Verify audio was removed from the put_item call
+    call_args = mock_table.put_item.call_args
+    item = call_args[1]["Item"]
+    assert "audio" not in item
+
+    # Verify audio is not in the returned result
+    assert result is not None
+    assert "audio" not in result
+
+
+@patch("data.runs.get_table")
+def test_update_run_without_remove_fields_keeps_audio(mock_get_table: MagicMock) -> None:
+    """update_run without remove_fields preserves existing audio."""
+    mock_table = MagicMock()
+    mock_table.get_item.return_value = {
+        "Item": {
+            "userId": "user-1",
+            "sk": "RUN#run-1",
+            "status": "completed",
+            "audio": {"source": "spotify", "name": "Dua Lipa"},
+        }
+    }
+    mock_get_table.return_value = mock_table
+
+    result = update_run("user-1", "run-1", {"title": "Evening run"})
+
+    call_args = mock_table.put_item.call_args
+    item = call_args[1]["Item"]
+    assert "audio" in item
+    assert result is not None
+    assert result["audio"]["name"] == "Dua Lipa"
+
+
+@patch("data.runs.get_table")
 def test_list_runs_converts_decimals(mock_get_table: MagicMock) -> None:
     """list_runs returns native Python types, not Decimals."""
     mock_table = MagicMock()

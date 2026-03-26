@@ -96,7 +96,12 @@ def list_all_runs(user_id: str) -> list[dict[str, Any]]:
     return [_strip_keys(dict(item)) for item in items]
 
 
-def update_run(user_id: str, run_id: str, update_data: dict[str, Any]) -> dict[str, Any] | None:
+def update_run(
+    user_id: str,
+    run_id: str,
+    update_data: dict[str, Any],
+    remove_fields: list[str] | None = None,
+) -> dict[str, Any] | None:
     """Update an existing run record. Returns updated item or None if not found."""
     table = get_table()
     key = {"userId": user_id, "sk": f"{SK_PREFIX}{run_id}"}
@@ -106,6 +111,8 @@ def update_run(user_id: str, run_id: str, update_data: dict[str, Any]) -> dict[s
         return None
 
     existing.update(update_data)
+    for field in remove_fields or []:
+        existing.pop(field, None)
     existing = _convert_floats_to_decimal(existing)
     table.put_item(Item=existing)
     return _strip_keys(dict(existing))
