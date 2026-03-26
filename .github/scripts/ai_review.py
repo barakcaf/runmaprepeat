@@ -759,8 +759,9 @@ def main() -> None:
                 if x[0] in ["CRITICAL", "HIGH", "MEDIUM", "LOW"] else 99,
             )
         )
+        ready_tag = " — ✅ Ready for Merge" if not has_blockers else ""
         tg_msg = (
-            f"🔍 <b>AI Review</b> — PR #{pr_number}\n"
+            f"🔍 <b>AI Review</b> — PR #{pr_number}{ready_tag}\n"
             f"{tg_counts}{tg_resolved}\n"
             f"<a href=\"{pr['html_url']}\">{pr_title}</a>"
         )
