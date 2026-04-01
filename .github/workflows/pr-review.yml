@@ -200,6 +200,7 @@ jobs:
           NOTIFY_CHANNEL: "telegram"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MODEL_ID: "arn:aws:bedrock:us-east-1:579083551251:application-inference-profile/x2ntqs4tet2b"
         run: python .github/scripts/ai_review.py
 
   # ================================================================
