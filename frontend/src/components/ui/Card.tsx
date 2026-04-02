@@ -1,14 +1,14 @@
-import { ReactNode, KeyboardEvent, MouseEvent, ElementType } from 'react';
+import { ReactNode, KeyboardEvent, MouseEvent, HTMLAttributes, ElementType } from 'react';
 import styles from './Card.module.css';
 
 type PaddingSize = 'none' | 'sm' | 'md' | 'lg';
 type ElementTag = 'div' | 'article' | 'section';
 
-export interface CardProps {
+export interface CardProps extends Omit<HTMLAttributes<HTMLElement>, 'onClick' | 'onKeyDown'> {
   children: ReactNode;
   padding?: PaddingSize;
   interactive?: boolean;
-  onClick?: (event: MouseEvent<HTMLElement>) => void;
+  onClick?: (event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>) => void;
   onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
   as?: ElementTag;
   className?: string;
@@ -41,6 +41,7 @@ export function Card({
   onKeyDown,
   as = 'div',
   className = '',
+  ...rest
 }: CardProps) {
   const Element = as as ElementType;
 
@@ -50,7 +51,7 @@ export function Card({
     if (interactive && onClick) {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault(); // Prevent scroll on Space
-        onClick(event as unknown as MouseEvent<HTMLElement>);
+        onClick(event);
       }
     }
     onKeyDown?.(event);
@@ -75,6 +76,7 @@ export function Card({
       tabIndex={interactive ? 0 : undefined}
       // WCAG 4.1.2 (Level A): Name, Role, Value
       aria-disabled={interactive && !onClick ? true : undefined}
+      {...rest}
     >
       {children}
     </Element>
