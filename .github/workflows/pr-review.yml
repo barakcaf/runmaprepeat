@@ -196,7 +196,7 @@ jobs:
           use_bedrock: "true"
           claude_args: "--model arn:aws:bedrock:us-east-1:579083551251:application-inference-profile/x2ntqs4tet2b --max-turns 30"
           github_token: ${{ steps.app-token.outputs.token }}
-          direct_prompt: |
+          prompt: |
             You are the principal-engineer (tech lead and orchestrator). Review PR #${{ github.event.pull_request.number }}.
 
             ## Setup — read these files first
