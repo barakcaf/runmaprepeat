@@ -352,15 +352,40 @@ jobs:
       - name: Create issues for MEDIUM findings
         if: always() && steps.check-findings.outputs.medium_findings != '[]'
         uses: actions/github-script@v7
+        env:
+          MEDIUM_FINDINGS: ${{ steps.check-findings.outputs.medium_findings }}
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const prNumber = context.payload.pull_request.number;
             const prTitle = context.payload.pull_request.title;
-            const findings = JSON.parse('${{ steps.check-findings.outputs.medium_findings }}' || '[]');
+            const raw = process.env.MEDIUM_FINDINGS || '[]';
+            let findings;
+            try {
+              findings = JSON.parse(raw);
+            } catch (e) {
+              console.log(`Failed to parse medium_findings: ${e.message}`);
+              return;
+            }
+
+            // Deduplicate: skip if an open issue already exists for this file + PR
+            const existingIssues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'ai-review',
+              per_page: 100,
+            });
 
             for (const f of findings) {
               const title = `fix: [AI Review] ${f.path} — medium finding from PR #${prNumber}`;
+
+              const duplicate = existingIssues.data.find(i => i.title === title);
+              if (duplicate) {
+                console.log(`Skipping duplicate issue for ${f.path}:${f.line} (existing #${duplicate.number})`);
+                continue;
+              }
+
               const body = [
                 `## Source`,
                 `Found by AI review (principal-engineer) on PR #${prNumber}: ${prTitle}`,
@@ -391,14 +416,17 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALL_FINDINGS: ${{ steps.check-findings.outputs.all_findings_summary }}
+          HAS_BLOCKERS: ${{ steps.check-findings.outputs.has_findings }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
         with:
           script: |
             const prTitle = context.payload.pull_request.title;
             const prNumber = context.payload.pull_request.number;
             const prUrl = context.payload.pull_request.html_url;
-            const hasBlockers = '${{ steps.check-findings.outputs.has_findings }}' === 'true';
-            const reviewOutcome = '${{ steps.review.outcome }}';
-            const allFindings = `${{ steps.check-findings.outputs.all_findings_summary }}`;
+            const hasBlockers = process.env.HAS_BLOCKERS === 'true';
+            const reviewOutcome = process.env.REVIEW_OUTCOME;
+            const allFindings = process.env.ALL_FINDINGS || '';
 
             let emoji, status;
             if (reviewOutcome !== 'success') {
@@ -411,17 +439,21 @@ jobs:
 
             let message = `${emoji} <b>AI Review</b> — PR #${prNumber} — ${status}\n<a href="${prUrl}">${prTitle}</a>`;
 
-            // Include all findings summary in notification
+            // Include all findings summary in notification — escape HTML
             if (allFindings && allFindings !== 'No findings') {
-              const lines = allFindings.split('\n').slice(0, 5);
-              const truncated = lines.join('\n') + (allFindings.split('\n').length > 5 ? '\n...' : '');
+              const escaped = allFindings
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+              const lines = escaped.split('\n').slice(0, 5);
+              const truncated = lines.join('\n') + (escaped.split('\n').length > 5 ? '\n...' : '');
               message += `\n\n<pre>${truncated.substring(0, 500)}</pre>`;
             }
 
             const token = process.env.TELEGRAM_BOT_TOKEN;
             const chatId = process.env.TELEGRAM_CHAT_ID;
             if (token && chatId) {
-              await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+              const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -429,6 +461,9 @@ jobs:
                   parse_mode: 'HTML', disable_web_page_preview: true
                 })
               });
+              if (!resp.ok) {
+                console.log('Telegram notification failed:', await resp.text());
+              }
             }
 
   # ================================================================
