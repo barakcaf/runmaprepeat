@@ -534,49 +534,80 @@ jobs:
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
         with:
           script: |
-            const prTitle = context.payload.pull_request.title;
-            const prNumber = context.payload.pull_request.number;
-            const prUrl = context.payload.pull_request.html_url;
-            const hasBlockers = process.env.HAS_BLOCKERS === 'true';
-            const reviewOutcome = process.env.REVIEW_OUTCOME;
-            const allFindings = process.env.ALL_FINDINGS || '';
+            try {
+              const prTitle = context.payload.pull_request.title;
+              const prNumber = context.payload.pull_request.number;
+              const prUrl = context.payload.pull_request.html_url;
+              const hasBlockers = process.env.HAS_BLOCKERS === 'true';
+              const reviewOutcome = process.env.REVIEW_OUTCOME;
+              const allFindings = process.env.ALL_FINDINGS || '';
 
-            let emoji, status;
-            if (reviewOutcome !== 'success') {
-              emoji = '⚠️'; status = 'Review Failed';
-            } else if (hasBlockers) {
-              emoji = '🔍'; status = 'Blocking Findings';
-            } else {
-              emoji = '✅'; status = 'Ready for Merge';
-            }
-
-            let message = `${emoji} <b>AI Review</b> — PR #${prNumber} — ${status}\n<a href="${prUrl}">${prTitle}</a>`;
-
-            // Include all findings summary in notification — escape HTML
-            if (allFindings && allFindings !== 'No findings') {
-              const escaped = allFindings
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
-              const lines = escaped.split('\n').slice(0, 5);
-              const truncated = lines.join('\n') + (escaped.split('\n').length > 5 ? '\n...' : '');
-              message += `\n\n<pre>${truncated.substring(0, 500)}</pre>`;
-            }
-
-            const token = process.env.TELEGRAM_BOT_TOKEN;
-            const chatId = process.env.TELEGRAM_CHAT_ID;
-            if (token && chatId) {
-              const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  chat_id: chatId, text: message,
-                  parse_mode: 'HTML', disable_web_page_preview: true
-                })
-              });
-              if (!resp.ok) {
-                console.log('Telegram notification failed:', await resp.text());
+              let emoji, status;
+              if (reviewOutcome !== 'success') {
+                emoji = '⚠️'; status = 'Review Failed';
+              } else if (hasBlockers) {
+                emoji = '🔍'; status = 'Blocking Findings';
+              } else {
+                emoji = '✅'; status = 'Ready for Merge';
               }
+
+              let message = `${emoji} <b>AI Review</b> — PR #${prNumber} — ${status}\n<a href="${prUrl}">${prTitle}</a>`;
+
+              // Include all findings summary in notification — escape HTML
+              if (allFindings && allFindings !== 'No findings') {
+                const escaped = allFindings
+                  .replace(/&/g, '&amp;')
+                  .replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;')
+                  .replace(/`/g, '');
+                const lines = escaped.split('\n').filter(l => l.trim()).slice(0, 5);
+                const truncated = lines.join('\n') + (escaped.split('\n').filter(l => l.trim()).length > 5 ? '\n...' : '');
+                message += `\n\n<pre>${truncated.substring(0, 500)}</pre>`;
+              }
+
+              // Telegram max message length is 4096
+              if (message.length > 4096) {
+                message = message.substring(0, 4090) + '…</pre>';
+              }
+
+              const token = process.env.TELEGRAM_BOT_TOKEN;
+              const chatId = process.env.TELEGRAM_CHAT_ID;
+              if (token && chatId) {
+                console.log(`Sending Telegram notification (${message.length} chars)`);
+                const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    chat_id: chatId, text: message,
+                    parse_mode: 'HTML', disable_web_page_preview: true
+                  })
+                });
+                if (!resp.ok) {
+                  const errText = await resp.text();
+                  console.log(`Telegram notification failed (${resp.status}): ${errText}`);
+                  // Retry without HTML parse mode
+                  const retryResp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      chat_id: chatId,
+                      text: message.replace(/<[^>]+>/g, ''),
+                      disable_web_page_preview: true
+                    })
+                  });
+                  if (!retryResp.ok) {
+                    console.log('Telegram retry also failed:', await retryResp.text());
+                  } else {
+                    console.log('Telegram retry (plain text) succeeded');
+                  }
+                } else {
+                  console.log('Telegram notification sent successfully');
+                }
+              } else {
+                console.log('Telegram credentials not configured — skipping');
+              }
+            } catch (e) {
+              console.log('Telegram notification error:', e.message);
             }
 
   # ================================================================
