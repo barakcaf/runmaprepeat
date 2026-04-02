@@ -68,6 +68,7 @@ export function Card({
 
   return (
     <Element
+      {...rest}
       className={classNames}
       onClick={interactive ? onClick : undefined}
       onKeyDown={handleKeyDown}
@@ -76,7 +77,6 @@ export function Card({
       tabIndex={interactive ? 0 : undefined}
       // WCAG 4.1.2 (Level A): Name, Role, Value
       aria-disabled={interactive && !onClick ? true : undefined}
-      {...rest}
     >
       {children}
     </Element>
