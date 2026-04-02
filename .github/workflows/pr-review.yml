@@ -569,6 +569,8 @@ jobs:
     needs: review
     runs-on: ubuntu-latest
     if: >
+      always() &&
+      needs.review.result != 'cancelled' &&
       needs.review.outputs.has_findings == 'true' &&
       github.actor != 'dependabot[bot]' &&
       !contains(github.event.pull_request.labels.*.name, 'no-auto-fix')
