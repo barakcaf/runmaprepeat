@@ -41,7 +41,7 @@ Check changed files against these categories (skip any that don't apply):
 | 2 | **Bugs & Error Handling** | Logic errors, missing try/catch, unhandled edge cases, wrong types, off-by-one |
 | 3 | **AWS Best Practices** | Lambda timeout/memory, IAM least-privilege, DynamoDB pagination (1MB limit), CDK construct patterns |
 | 4 | **Code Quality** | Typing, DRY violations, dead code, copy-paste artifacts, unclear logic |
-| 5 | **Test Coverage** | Missing test cases for new/changed behavior, untested error paths |
+| 5 | **Test Coverage** | Missing test cases for new/changed behavior, untested error paths. New features MUST include tests that would fail without the implementation (red/green). Bug fixes MUST include a regression test. |
 | 6 | **Performance** | Unnecessary re-renders (React), missing useCallback/useMemo, redundant API calls, bundle size |
 | 7 | **Data Integrity** | DynamoDB key schema violations, missing validation, decimal/float handling |
 
