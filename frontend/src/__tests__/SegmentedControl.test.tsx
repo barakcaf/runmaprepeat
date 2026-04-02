@@ -1,8 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
-import { axe } from "jest-axe";
+import { axe } from "vitest-axe";
+import { toHaveNoViolations } from "vitest-axe/matchers";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
+
+expect.extend({ toHaveNoViolations });
 
 const options = [
   { label: "Day", value: "day" },

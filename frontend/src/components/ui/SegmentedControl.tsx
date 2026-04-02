@@ -53,6 +53,7 @@ export function SegmentedControl({
         return (
           <button
             key={option.value}
+            type="button"
             role="radio"
             aria-checked={isSelected}
             tabIndex={isSelected ? 0 : -1}

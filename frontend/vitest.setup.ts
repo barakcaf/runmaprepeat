@@ -1,4 +1,4 @@
 import "@testing-library/jest-dom/vitest";
-import { toHaveNoViolations } from "jest-axe";
+import { toHaveNoViolations } from "vitest-axe/matchers";
 
 expect.extend(toHaveNoViolations);

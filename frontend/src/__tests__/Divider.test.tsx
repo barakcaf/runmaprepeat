@@ -1,7 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
-import { axe } from "jest-axe";
+import { axe } from "vitest-axe";
+import { toHaveNoViolations } from "vitest-axe/matchers";
 import { Divider } from "../components/ui/Divider";
+
+expect.extend({ toHaveNoViolations });
 
 describe("Divider", () => {
   it("renders a separator without label", () => {
