@@ -268,6 +268,7 @@ jobs:
 
             // Fallback: if marker not found (backwards compat), use latest summary
             // but ONLY if it was created after this workflow run started
+            // TODO: Remove this fallback after 2-3 PR cycles once all reviews have the marker
             if (!summaryComment) {
               const runStarted = new Date('${{ github.event.pull_request.updated_at }}');
               summaryComment = comments.data.find(c =>

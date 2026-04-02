@@ -68,6 +68,9 @@ jobs:
         id: summary
         uses: actions/github-script@v7
         with:
+          # No github-token here — summary must work even when app-token step failed.
+          # Default GITHUB_TOKEN is used for PR detail lookups (commit msg, files changed).
+          # If it lacks access, the try/catch in the success branch handles it gracefully.
           script: |
             try {
               const prNumber = context.payload.issue.number;
