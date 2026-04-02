@@ -8,7 +8,11 @@ jobs:
   notify:
     name: Notify on PR Review
     runs-on: ubuntu-latest
-    if: github.event.review.user.login != github.event.pull_request.user.login
+    # Only notify for human reviews — bot reviews (AI code review) have their own
+    # notification in pr-review.yml. This prevents duplicate Telegram messages.
+    if: >
+      github.event.review.user.login != github.event.pull_request.user.login &&
+      github.event.review.user.type != 'Bot'
     steps:
       - name: Send notification
         uses: actions/github-script@v7
