@@ -3,6 +3,9 @@
 Personal exercise run tracker. Draw routes on a map → distance, pace, calories.
 
 ## Build & Test (run these to verify your work)
+
+**Always run the full test suite first** to establish a baseline before making changes.
+
 ```bash
 # Frontend
 cd frontend && npm install && npm run build && npm run test
@@ -18,7 +21,8 @@ cd infra && pip install -r requirements.txt && cdk synth --quiet
 - **Open a GitHub issue first** — every feature or bug fix starts with a tracked issue. Include scope, design, and acceptance criteria. Reference the issue number in branch names and commits.
 - **Plan before code** — explore → plan → implement → verify. Complex changes need a planning phase; trivial changes can skip it.
 - **Small, focused commits** — conventional commits: `feat:`, `fix:`, `test:`, `chore:`, `docs:`
-- **Run tests before finishing** — always verify, never trust blindly
+- **Red/green TDD** — for bug fixes, write a failing test first (red), then implement the fix (green). For features, tests must fail without the implementation.
+- **Manual verification** — after tests pass, start the server and exercise changes with curl or a browser build to catch integration issues tests miss
 - **Merge and deployment rules** — see WORKFLOW.md
 
 ## Testing Requirements
