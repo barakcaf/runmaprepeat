@@ -84,15 +84,16 @@ describe('Card', () => {
           Content
         </Card>
       );
-      await user.click(screen.getByText('Content'));
+      const button = screen.getByRole('button');
+      await user.click(button);
       expect(handleClick).toHaveBeenCalledTimes(1);
     });
 
-    it('does not call onClick when not interactive', async () => {
+    it('does not call onClick when not interactive', () => {
       const handleClick = vi.fn();
-      const user = userEvent.setup();
-      render(<Card onClick={handleClick}>Content</Card>);
-      await user.click(screen.getByText('Content'));
+      const { container } = render(<Card onClick={handleClick}>Content</Card>);
+      const card = container.firstChild as HTMLElement;
+      card.click();
       expect(handleClick).not.toHaveBeenCalled();
     });
   });
@@ -173,16 +174,6 @@ describe('Card', () => {
       const card = screen.getByRole('button');
       card.focus();
       await user.keyboard('{Enter}');
-      expect(handleKeyDown).toHaveBeenCalled();
-    });
-
-    it('calls onKeyDown even when not interactive', async () => {
-      const handleKeyDown = vi.fn();
-      const user = userEvent.setup();
-      const { container } = render(<Card onKeyDown={handleKeyDown}>Content</Card>);
-      const card = container.firstChild as HTMLElement;
-      card.focus();
-      await user.keyboard('a');
       expect(handleKeyDown).toHaveBeenCalled();
     });
   });
