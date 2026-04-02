@@ -169,6 +169,7 @@ jobs:
     outputs:
       has_findings: ${{ steps.check-findings.outputs.has_findings }}
       findings_summary: ${{ steps.check-findings.outputs.findings_summary }}
+      summary_findings_section: ${{ steps.check-findings.outputs.summary_findings_section }}
 
     steps:
       - name: Checkout
@@ -235,9 +236,11 @@ jobs:
             🟢 LOW — improvement opportunity (optimization, naming, optional enhancement)
 
             ## Summary comment format
-            Your `gh pr comment` must follow this structure:
+            Your `gh pr comment` must follow this structure EXACTLY.
+            The FIRST line must be the HTML comment marker: `<!-- review-run:${{ github.run_id }} -->`
 
             ```
+            <!-- review-run:${{ github.run_id }} -->
             ## 🤖 AI Code Review — #<number>: <title>
 
             *Type: feature|bugfix|refactor|config|docs*
@@ -245,6 +248,11 @@ jobs:
             <1-2 sentence assessment>
 
             ### Findings: <count by severity>
+
+            | # | Severity | File | Finding |
+            |---|----------|------|---------|
+            | 1 | 🔴 CRITICAL | `path/to/file` | Brief description |
+
             See inline comments for details.
 
             ### Verdict
@@ -252,6 +260,10 @@ jobs:
             OR
             ❌ Blocking findings — N issues must be resolved
             ```
+
+            IMPORTANT: The findings TABLE is mandatory even when all findings have inline comments.
+            Each row must include severity emoji, file path, and a brief description.
+            This table is used as fallback context for the auto-fix agent.
 
             After posting the summary, if there are any CRITICAL or HIGH findings, output the text HAS_BLOCKING_FINDINGS on its own line as your final message.
             If no blocking findings, output NO_BLOCKING_FINDINGS.
@@ -264,6 +276,7 @@ jobs:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const prNumber = context.payload.pull_request.number;
+            const runId = '${{ github.run_id }}';
             const reviewOutcome = '${{ steps.review.outcome }}';
 
             // Gate 1: review step must have succeeded
@@ -275,26 +288,41 @@ jobs:
               return;
             }
 
-            // Gate 2: principal-engineer must have posted a summary comment
+            // Gate 2: find the summary comment FROM THIS RUN (not stale ones)
             const comments = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
-              per_page: 30,
+              per_page: 50,
             });
 
-            const summaryComment = comments.data.reverse().find(c =>
-              c.body.includes('🤖 AI Code Review') &&
+            // Match by run_id marker injected by the review prompt
+            const runMarker = `<!-- review-run:${runId} -->`;
+            let summaryComment = comments.data.reverse().find(c =>
+              c.body.includes(runMarker) &&
               (c.user.login === 'github-actions[bot]' || c.user.login === 'runmaprepeat-autofix[bot]')
             );
 
+            // Fallback: if marker not found (backwards compat), use latest summary
+            // but ONLY if it was created after this workflow run started
             if (!summaryComment) {
-              core.setFailed('Review completed but principal-engineer did not post a summary comment. Review may have been a no-op.');
+              const runStarted = new Date('${{ github.event.pull_request.updated_at }}');
+              summaryComment = comments.data.find(c =>
+                c.body.includes('🤖 AI Code Review') &&
+                (c.user.login === 'github-actions[bot]' || c.user.login === 'runmaprepeat-autofix[bot]') &&
+                new Date(c.created_at) >= runStarted
+              );
+            }
+
+            if (!summaryComment) {
+              core.setFailed('Review completed but principal-engineer did not post a summary comment for this run. Review may have been a no-op.');
               core.setOutput('has_findings', 'false');
               core.setOutput('findings_summary', '');
               core.setOutput('all_findings_summary', '');
               return;
             }
+
+            console.log(`Found summary comment #${summaryComment.id} created at ${summaryComment.created_at}`);
 
             // Gate 3: summary must contain a verdict
             const hasVerdict = summaryComment.body.includes('Ready for Merge') ||
@@ -310,7 +338,6 @@ jobs:
             const hasBlockers = summaryComment.body.includes('❌ Blocking findings');
 
             // Extract findings from inline review comments — ONLY from this review cycle
-            // Filter by the current HEAD SHA to avoid stale findings from previous reviews
             const headSha = '${{ github.event.pull_request.head.sha }}';
             const reviews = await github.rest.pulls.listReviewComments({
               owner: context.repo.owner,
@@ -324,8 +351,8 @@ jobs:
               c.commit_id === headSha
             );
 
-            // Split by severity
-            const blockerFindings = botComments
+            // Split by severity — from inline comments
+            let blockerFindings = botComments
               .filter(c => c.body.includes('🔴') || c.body.includes('🟠'))
               .map(c => `- [${c.path}:${c.line || c.original_line}] ${c.body.substring(0, 300)}`)
               .join('\n');
@@ -338,16 +365,45 @@ jobs:
                 body: c.body.substring(0, 500),
               }));
 
-            const allFindings = botComments
+            let allFindings = botComments
               .filter(c => c.body.includes('🔴') || c.body.includes('🟠') || c.body.includes('🟡') || c.body.includes('🟢'))
               .map(c => `- [${c.path}:${c.line || c.original_line}] ${c.body.substring(0, 300)}`)
               .join('\n');
+
+            // FALLBACK: if verdict says blocking but inline comments are empty,
+            // extract findings from the summary comment table
+            if (hasBlockers && !blockerFindings) {
+              console.log('⚠️ Verdict says blocking but no inline comments found — extracting from summary table');
+              const tableRows = summaryComment.body.match(/\|[^|]*\|[^|]*(🔴|🟠)[^|]*\|[^|]*\|[^|]*\|/g);
+              if (tableRows && tableRows.length > 0) {
+                blockerFindings = tableRows
+                  .map(row => `- ${row.replace(/\|/g, ' ').trim()}`)
+                  .join('\n');
+                console.log(`Extracted ${tableRows.length} blocker findings from summary table`);
+              }
+
+              // Also extract all findings from table
+              const allTableRows = summaryComment.body.match(/\|[^|]*\|[^|]*(🔴|🟠|🟡|🟢)[^|]*\|[^|]*\|[^|]*\|/g);
+              if (allTableRows && allTableRows.length > 0 && !allFindings) {
+                allFindings = allTableRows
+                  .map(row => `- ${row.replace(/\|/g, ' ').trim()}`)
+                  .join('\n');
+              }
+            }
 
             core.setOutput('has_findings', hasBlockers ? 'true' : 'false');
             core.setOutput('findings_summary', blockerFindings || 'No findings extracted');
             core.setOutput('all_findings_summary', allFindings || 'No findings');
             core.setOutput('medium_findings', JSON.stringify(mediumFindings));
-            console.log(`✅ Review validated: verdict=${hasBlockers ? 'blocking' : 'clean'}, this-cycle comments=${botComments.length}, medium=${mediumFindings.length}`);
+
+            // Also pass the full summary comment body as fallback context for auto-fix
+            if (hasBlockers) {
+              // Extract just the findings section from summary for richer context
+              const findingsSection = summaryComment.body.match(/### Findings[\s\S]*?(?=### Verdict|$)/);
+              core.setOutput('summary_findings_section', findingsSection ? findingsSection[0].substring(0, 2000) : '');
+            }
+
+            console.log(`✅ Review validated: verdict=${hasBlockers ? 'blocking' : 'clean'}, inline=${botComments.length}, medium=${mediumFindings.length}, fallback=${!blockerFindings ? 'used' : 'not needed'}`);
 
             // Gate 4: FAIL the check if there are blocking findings
             if (hasBlockers) {
@@ -629,11 +685,22 @@ jobs:
         uses: actions/github-script@v7
         env:
           FINDINGS_SUMMARY: ${{ needs.review.outputs.findings_summary }}
+          SUMMARY_SECTION: ${{ needs.review.outputs.summary_findings_section }}
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const cycle = '${{ steps.cycle.outputs.cycle }}';
-            const findings = process.env.FINDINGS_SUMMARY;
+            const inlineFindings = process.env.FINDINGS_SUMMARY;
+            const summarySection = process.env.SUMMARY_SECTION;
+
+            // Use inline findings if available, otherwise fall back to summary table
+            let findings = inlineFindings;
+            let source = 'inline review comments';
+            if (!inlineFindings || inlineFindings === 'No findings extracted') {
+              findings = summarySection || 'No detailed findings available — check the AI review summary comment above for context.';
+              source = 'summary comment table (inline comments were not created)';
+            }
+
             const body = [
               `@claude [ai-fix-cycle-${cycle}] You are the principal-engineer (tech lead). Fix the following code review findings.`,
               '',
@@ -663,7 +730,7 @@ jobs:
               '- For CRITICAL findings, add a brief code comment explaining the fix',
               '- Do not modify infrastructure code unless the finding specifically targets it',
               '',
-              `**Findings (cycle ${cycle}/2):**`,
+              `**Findings (cycle ${cycle}/2) — source: ${source}:**`,
               '',
               findings,
             ].join('\n');
