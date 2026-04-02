@@ -23,7 +23,7 @@ cd infra && pip install -r requirements.txt && cdk synth --quiet
 - **Small, focused commits** — conventional commits: `feat:`, `fix:`, `test:`, `chore:`, `docs:`
 - **Red/green TDD** — for bug fixes, write a failing test first (red), then implement the fix (green). For features, tests must fail without the implementation.
 - **Manual verification** — after tests pass, start the server and exercise changes with curl or a browser build to catch integration issues tests miss
-- **Merge and deployment rules** — see WORKFLOW.md
+- **Merge and deployment rules** — see `.claude/rules/workflow.md`
 
 ## Testing Requirements
 - **All new code and bug fixes MUST have tests** — no exceptions. Bug fixes need a regression test that would have caught the original bug.
