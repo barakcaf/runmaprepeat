@@ -12,6 +12,7 @@ import { PlannedRunsPage } from "./pages/PlannedRunsPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { ProfileSetupPage } from "./pages/ProfileSetupPage";
+import { ToastProvider } from "./providers/ToastProvider";
 
 function AppRoutes() {
   const location = useLocation();
@@ -94,7 +95,9 @@ function App() {
     <ThemeProvider>
       <BrowserRouter>
         <AuthProvider>
-          <AppRoutes />
+          <ToastProvider>
+            <AppRoutes />
+          </ToastProvider>
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>
