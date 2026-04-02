@@ -263,24 +263,48 @@ jobs:
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
-            // Check the review comments for blocking findings
             const prNumber = context.payload.pull_request.number;
+            const reviewOutcome = '${{ steps.review.outcome }}';
+
+            // Gate 1: review step must have succeeded
+            if (reviewOutcome !== 'success') {
+              core.setFailed(`Review step failed with outcome: ${reviewOutcome}`);
+              core.setOutput('has_findings', 'false');
+              core.setOutput('findings_summary', '');
+              return;
+            }
+
+            // Gate 2: principal-engineer must have posted a summary comment
             const comments = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
-              per_page: 20,
+              per_page: 30,
             });
 
-            // Find the bot's summary comment
             const summaryComment = comments.data.reverse().find(c =>
               c.body.includes('🤖 AI Code Review') &&
               (c.user.login === 'github-actions[bot]' || c.user.login === 'runmaprepeat-autofix[bot]')
             );
 
-            const hasBlockers = summaryComment
-              ? summaryComment.body.includes('❌ Blocking findings')
-              : false;
+            if (!summaryComment) {
+              core.setFailed('Review completed but principal-engineer did not post a summary comment. Review may have been a no-op.');
+              core.setOutput('has_findings', 'false');
+              core.setOutput('findings_summary', '');
+              return;
+            }
+
+            // Gate 3: summary must contain a verdict
+            const hasVerdict = summaryComment.body.includes('Ready for Merge') ||
+                               summaryComment.body.includes('Blocking findings');
+            if (!hasVerdict) {
+              core.setFailed('Summary comment exists but missing verdict (Ready for Merge / Blocking findings). Review may be incomplete.');
+              core.setOutput('has_findings', 'false');
+              core.setOutput('findings_summary', '');
+              return;
+            }
+
+            const hasBlockers = summaryComment.body.includes('❌ Blocking findings');
 
             // Extract findings from inline review comments for the fix agent
             const reviews = await github.rest.pulls.listReviewComments({
@@ -300,7 +324,7 @@ jobs:
 
             core.setOutput('has_findings', hasBlockers ? 'true' : 'false');
             core.setOutput('findings_summary', botFindings || 'No findings extracted');
-            console.log(`Blocking findings: ${hasBlockers}, inline comments: ${reviews.data.length}`);
+            console.log(`✅ Review validated: verdict=${hasBlockers ? 'blocking' : 'clean'}, inline comments=${reviews.data.length}`);
 
       - name: Notify via Telegram
         if: always() && steps.review.outcome != 'cancelled'
