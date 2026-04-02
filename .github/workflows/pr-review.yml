@@ -194,7 +194,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           use_bedrock: "true"
-          claude_args: "--model arn:aws:bedrock:us-east-1:579083551251:application-inference-profile/x2ntqs4tet2b --max-turns 30"
+          claude_args: "--model arn:aws:bedrock:us-east-1:579083551251:application-inference-profile/x2ntqs4tet2b --max-turns 50 --allowedTools mcp__github_inline_comment__create_inline_comment,Bash(gh:*),Read,Glob,Grep"
           github_token: ${{ steps.app-token.outputs.token }}
           prompt: |
             You are the principal-engineer (tech lead and orchestrator). Review PR #${{ github.event.pull_request.number }}.
