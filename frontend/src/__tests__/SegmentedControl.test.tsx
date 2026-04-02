@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { axe } from "vitest-axe";
-import { toHaveNoViolations } from "vitest-axe/matchers";
+import { toHaveNoViolations } from "vitest-axe/dist/matchers";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
 
 expect.extend({ toHaveNoViolations });
