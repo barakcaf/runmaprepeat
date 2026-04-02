@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthProvider";
+import { ThemeProvider } from "./providers/ThemeProvider";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { ProfileGate } from "./auth/ProfileGate";
 import { LoginPage } from "./auth/LoginPage";
@@ -90,11 +91,13 @@ function AppRoutes() {
 
 function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </BrowserRouter>
+    <ThemeProvider>
+      <BrowserRouter>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }
 

@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { Amplify } from "aws-amplify";
 import App from "./App";
 import { config } from "./config";
+import { ThemeProvider } from "./providers/ThemeProvider";
 import "./styles/global.css";
 
 Amplify.configure({
@@ -17,6 +18,8 @@ Amplify.configure({
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
   </React.StrictMode>
 );

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { getProfile, updateProfile } from "../api/client";
 import type { Profile } from "../types/profile";
+import { DarkModeToggle } from "../components/DarkModeToggle/DarkModeToggle";
 import shared from "../styles/shared.module.css";
 import styles from "../styles/ProfilePage.module.css";
 
@@ -175,6 +176,11 @@ export function ProfilePage() {
             <span className={styles.fieldLabel}>Email Subscriptions</span>
             <span className={styles.fieldValue} data-testid="view-weeklyEmail">Weekly: {weeklyEmail ? "On" : "Off"}</span>
             <span className={styles.fieldValue} data-testid="view-monthlyEmail">Monthly: {monthlyEmail ? "On" : "Off"}</span>
+          </div>
+
+          <div className={styles.fieldGroup}>
+            <span className={styles.fieldLabel}>Theme</span>
+            <DarkModeToggle />
           </div>
 
           <button
