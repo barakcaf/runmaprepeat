@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
+import { axe } from "jest-axe";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
 
 const options = [
@@ -131,5 +132,46 @@ describe("SegmentedControl", () => {
     radios[2].focus();
     await user.keyboard("{ArrowRight}");
     expect(onChange).toHaveBeenCalledWith("day");
+  });
+
+  describe("Accessibility (WCAG 2.2 AA)", () => {
+    it("has no axe violations", async () => {
+      const { container } = render(
+        <SegmentedControl
+          options={options}
+          value="week"
+          onChange={() => {}}
+          aria-label="Time range"
+        />
+      );
+      const results = await axe(container);
+      expect(results).toHaveNoViolations();
+    });
+
+    it("has no axe violations with single option", async () => {
+      const { container } = render(
+        <SegmentedControl
+          options={[{ label: "Only", value: "only" }]}
+          value="only"
+          onChange={() => {}}
+          aria-label="Single option"
+        />
+      );
+      const results = await axe(container);
+      expect(results).toHaveNoViolations();
+    });
+
+    it("provides accessible name via aria-label (WCAG 4.1.2)", () => {
+      render(
+        <SegmentedControl
+          options={options}
+          value="day"
+          onChange={() => {}}
+          aria-label="Select time period"
+        />
+      );
+      const group = screen.getByRole("radiogroup");
+      expect(group).toHaveAccessibleName("Select time period");
+    });
   });
 });
