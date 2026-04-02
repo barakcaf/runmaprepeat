@@ -105,7 +105,8 @@ jobs:
               }
 
               // Parse findings from the trigger comment
-              const findingsMatch = commentBody.match(/Findings \(cycle \d+\/\d+\)[^:]*:\s*\n\n([\s\S]*)/);
+              // Format: **Findings (cycle N/M) — source: ...:**, or without bold markers
+              const findingsMatch = commentBody.match(/\*{0,2}Findings \(cycle \d+\/\d+\)[^:]*:\*{0,2}\s*\n\n([\s\S]*)/);
               const findingsText = findingsMatch ? findingsMatch[1] : '';
               const criticalCount = (findingsText.match(/🔴/g) || []).length;
               const highCount = (findingsText.match(/🟠/g) || []).length;
@@ -144,9 +145,13 @@ jobs:
 
                 emoji = '🔧';
                 status = 'Auto-Fix Applied';
-                details = `Cycle ${cycle}: ${totalFindings} finding${totalFindings !== 1 ? 's' : ''} addressed`;
-                if (criticalCount > 0) details += ` (${criticalCount} CRITICAL, ${highCount} HIGH)`;
-                else if (highCount > 0) details += ` (${highCount} HIGH, ${mediumCount} MEDIUM)`;
+                if (totalFindings > 0) {
+                  details = `Cycle ${cycle}: ${totalFindings} finding${totalFindings !== 1 ? 's' : ''} addressed`;
+                  if (criticalCount > 0) details += ` (${criticalCount} CRITICAL, ${highCount} HIGH)`;
+                  else if (highCount > 0) details += ` (${highCount} HIGH, ${mediumCount} MEDIUM)`;
+                } else {
+                  details = `Cycle ${cycle}: findings addressed`;
+                }
                 if (commitMsg) details += `\nCommit: ${commitMsg}`;
                 if (filesChanged > 0) details += `\nFiles changed: ${filesChanged}`;
               } else if (fixOutcome === 'skipped') {
@@ -161,9 +166,13 @@ jobs:
                 // failure or unknown
                 emoji = '⚠️';
                 status = 'Auto-Fix Failed';
-                details = `Cycle ${cycle}: Claude could not resolve ${totalFindings} finding${totalFindings !== 1 ? 's' : ''}`;
-                if (criticalCount > 0) details += ` (${criticalCount} CRITICAL, ${highCount} HIGH)`;
-                else if (highCount > 0) details += ` (${highCount} HIGH)`;
+                if (totalFindings > 0) {
+                  details = `Cycle ${cycle}: Claude could not resolve ${totalFindings} finding${totalFindings !== 1 ? 's' : ''}`;
+                  if (criticalCount > 0) details += ` (${criticalCount} CRITICAL, ${highCount} HIGH)`;
+                  else if (highCount > 0) details += ` (${highCount} HIGH)`;
+                } else {
+                  details = `Cycle ${cycle}: Claude could not resolve findings`;
+                }
               }
 
               const message = `${emoji} <b>${status}</b>: #${prNumber} — ${prTitle}\n${details}\n<a href="${runUrl}">View logs</a> | <a href="${prUrl}">View PR</a>`;
