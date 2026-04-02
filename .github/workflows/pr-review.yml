@@ -167,9 +167,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.actor != 'dependabot[bot]'
     outputs:
-      has_findings: ${{ steps.run-review.outputs.has_findings }}
-      findings_json: ${{ steps.run-review.outputs.findings_json }}
-      findings_summary: ${{ steps.run-review.outputs.findings_summary }}
+      has_findings: ${{ steps.check-findings.outputs.has_findings }}
+      findings_summary: ${{ steps.check-findings.outputs.findings_summary }}
 
     steps:
       - name: Checkout
@@ -183,25 +182,186 @@ jobs:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
           aws-region: us-east-1
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
         with:
-          python-version: "3.12"
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
-      - name: Install dependencies
-        run: pip install boto3
+      - name: Run principal-engineer review
+        id: review
+        uses: anthropics/claude-code-action@v1
+        with:
+          use_bedrock: "true"
+          claude_args: "--model arn:aws:bedrock:us-east-1:579083551251:application-inference-profile/x2ntqs4tet2b --max-turns 50 --allowedTools mcp__github_inline_comment__create_inline_comment,Bash(gh:*),Read,Glob,Grep"
+          github_token: ${{ steps.app-token.outputs.token }}
+          prompt: |
+            You are the principal-engineer (tech lead and orchestrator). Review PR #${{ github.event.pull_request.number }}.
 
-      - name: Run AI review
-        id: run-review
+            ## Setup — read these files first
+            1. `CLAUDE.md` — project context and conventions
+            2. `.claude/agents/principal-engineer.md` — your role, perspective, and review format
+            3. `.claude/rules/code-quality.md` — architecture and code standards
+            4. `.claude/rules/security.md` — security rules, OWASP, STRIDE
+
+            Then based on which files changed, also read:
+            - Backend/infra changes → `.claude/rules/infrastructure.md`
+            - Frontend changes → `.claude/rules/frontend.md`
+            - DynamoDB/data changes → `.claude/rules/backend.md` (backend conventions)
+
+            ## Review process
+            1. Run `gh pr diff ${{ github.event.pull_request.number }}` to see all changes
+            2. Read each changed file for full context (not just the diff)
+            3. Apply your routing heuristic from principal-engineer.md:
+               - For security-sensitive changes (auth, IAM, secrets): apply deep security rules
+               - For frontend changes: apply WCAG 2.2, Core Web Vitals, Nielsen's heuristics
+               - For architecture/backend: apply AWS patterns, service limits, cost analysis
+            4. Post inline comments for CRITICAL/HIGH/MEDIUM findings using `mcp__github_inline_comment__create_inline_comment` with `confirmed: true`
+            5. Post a summary comment using `gh pr comment ${{ github.event.pull_request.number }}`
+
+            ## Review rules
+            - Only flag real issues (>70% confidence). No noise.
+            - Skip: formatting, import order, naming preferences, vague "consider X" suggestions
+            - Every finding must have a concrete code fix
+            - Max 10 findings, prioritized by severity
+            - Diff scope only — don't flag pre-existing issues unless the PR makes them worse
+            - Don't review: `cdk.out/`, `node_modules/`, `*.lock`, `dist/`, `__pycache__/`
+
+            ## Severity levels
+            🔴 CRITICAL — security vulnerability or data loss (credentials, injection, no auth)
+            🟠 HIGH — bug or significant gap (logic error, missing error handling)
+            🟡 MEDIUM — quality issue (missing validation, unclear logic, missing test)
+            🟢 LOW — improvement opportunity (optimization, naming, optional enhancement)
+
+            ## Summary comment format
+            Your `gh pr comment` must follow this structure:
+
+            ```
+            ## 🤖 AI Code Review — #<number>: <title>
+
+            *Type: feature|bugfix|refactor|config|docs*
+
+            <1-2 sentence assessment>
+
+            ### Findings: <count by severity>
+            See inline comments for details.
+
+            ### Verdict
+            ✅ Ready for Merge — no blocking findings
+            OR
+            ❌ Blocking findings — N issues must be resolved
+            ```
+
+            After posting the summary, if there are any CRITICAL or HIGH findings, output the text HAS_BLOCKING_FINDINGS on its own line as your final message.
+            If no blocking findings, output NO_BLOCKING_FINDINGS.
+
+      - name: Check for blocking findings
+        id: check-findings
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const reviewOutcome = '${{ steps.review.outcome }}';
+
+            // Gate 1: review step must have succeeded
+            if (reviewOutcome !== 'success') {
+              core.setFailed(`Review step failed with outcome: ${reviewOutcome}`);
+              core.setOutput('has_findings', 'false');
+              core.setOutput('findings_summary', '');
+              return;
+            }
+
+            // Gate 2: principal-engineer must have posted a summary comment
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              per_page: 30,
+            });
+
+            const summaryComment = comments.data.reverse().find(c =>
+              c.body.includes('🤖 AI Code Review') &&
+              (c.user.login === 'github-actions[bot]' || c.user.login === 'runmaprepeat-autofix[bot]')
+            );
+
+            if (!summaryComment) {
+              core.setFailed('Review completed but principal-engineer did not post a summary comment. Review may have been a no-op.');
+              core.setOutput('has_findings', 'false');
+              core.setOutput('findings_summary', '');
+              return;
+            }
+
+            // Gate 3: summary must contain a verdict
+            const hasVerdict = summaryComment.body.includes('Ready for Merge') ||
+                               summaryComment.body.includes('Blocking findings');
+            if (!hasVerdict) {
+              core.setFailed('Summary comment exists but missing verdict (Ready for Merge / Blocking findings). Review may be incomplete.');
+              core.setOutput('has_findings', 'false');
+              core.setOutput('findings_summary', '');
+              return;
+            }
+
+            const hasBlockers = summaryComment.body.includes('❌ Blocking findings');
+
+            // Extract findings from inline review comments for the fix agent
+            const reviews = await github.rest.pulls.listReviewComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              per_page: 50,
+            });
+
+            const botFindings = reviews.data
+              .filter(c =>
+                (c.user.login === 'github-actions[bot]' || c.user.login === 'runmaprepeat-autofix[bot]') &&
+                (c.body.includes('🔴') || c.body.includes('🟠') || c.body.includes('🟡'))
+              )
+              .map(c => `- [${c.path}:${c.line || c.original_line}] ${c.body.substring(0, 300)}`)
+              .join('\n');
+
+            core.setOutput('has_findings', hasBlockers ? 'true' : 'false');
+            core.setOutput('findings_summary', botFindings || 'No findings extracted');
+            console.log(`✅ Review validated: verdict=${hasBlockers ? 'blocking' : 'clean'}, inline comments=${reviews.data.length}`);
+
+      - name: Notify via Telegram
+        if: always() && steps.review.outcome != 'cancelled'
+        uses: actions/github-script@v7
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO_NAME: ${{ github.repository }}
-          NOTIFY_CHANNEL: "telegram"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          MODEL_ID: "arn:aws:bedrock:us-east-1:579083551251:application-inference-profile/x2ntqs4tet2b"
-        run: python .github/scripts/ai_review.py
+        with:
+          script: |
+            const prTitle = context.payload.pull_request.title;
+            const prNumber = context.payload.pull_request.number;
+            const prUrl = context.payload.pull_request.html_url;
+            const hasBlockers = '${{ steps.check-findings.outputs.has_findings }}' === 'true';
+            const reviewOutcome = '${{ steps.review.outcome }}';
+
+            let emoji, status;
+            if (reviewOutcome !== 'success') {
+              emoji = '⚠️'; status = 'Review Failed';
+            } else if (hasBlockers) {
+              emoji = '🔍'; status = 'Blocking Findings';
+            } else {
+              emoji = '✅'; status = 'Ready for Merge';
+            }
+
+            const message = `${emoji} <b>AI Review</b> — PR #${prNumber} — ${status}\n<a href="${prUrl}">${prTitle}</a>`;
+            const token = process.env.TELEGRAM_BOT_TOKEN;
+            const chatId = process.env.TELEGRAM_CHAT_ID;
+            if (token && chatId) {
+              await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: chatId, text: message,
+                  parse_mode: 'HTML', disable_web_page_preview: true
+                })
+              });
+            }
 
   # ================================================================
   # Job 3: Trigger auto-fix via @claude comment
@@ -276,18 +436,39 @@ jobs:
           script: |
             const cycle = '${{ steps.cycle.outputs.cycle }}';
             const findings = process.env.FINDINGS_SUMMARY;
-            const body = `@claude [ai-fix-cycle-${cycle}] Fix the following code review findings. ` +
-              `Read .github/prompts/fix.md for detailed instructions.\n\n` +
-              `**Available tools:** Glob, Grep, LS, Read, Bash (git add, git commit, git push, git rm). ` +
-              `Use Bash to write/edit files (e.g. sed, cat, echo). Do NOT attempt to use Write or Edit tools — they are not available.\n\n` +
-              `**Rules:**\n` +
-              `- Read the PR description to understand the feature context before fixing\n` +
-              `- Fix the source code, NOT the tests\n` +
-              `- Run tests after each fix (see CLAUDE.md for commands)\n` +
-              `- If a fix breaks tests, revert it\n` +
-              `- Only keep fixes where all tests still pass\n` +
-              `- Commit message must include [ai-fix-cycle-${cycle}]\n\n` +
-              `**Findings (cycle ${cycle}/2):**\n\n${findings}`;
+            const body = [
+              `@claude [ai-fix-cycle-${cycle}] You are the principal-engineer (tech lead). Fix the following code review findings.`,
+              '',
+              '**Setup — read these files first:**',
+              '1. `CLAUDE.md` — project context',
+              '2. `.claude/agents/principal-engineer.md` — your role and standards',
+              '3. `.claude/rules/code-quality.md` — architecture standards',
+              '4. Read additional `.claude/rules/` files based on which files need fixing (security.md, frontend.md, infrastructure.md, backend.md)',
+              '',
+              '**Process:**',
+              '1. Read each finding carefully — understand the root cause before changing anything',
+              '2. Establish baseline: run all test suites first',
+              '   - Frontend: `cd frontend && npm ci && npm test -- --run`',
+              '   - Backend: `cd backend && pip install pytest moto boto3 && pytest --tb=short`',
+              '   - CDK: `cd infra && pip install -r requirements.txt && pytest --tb=short`',
+              '3. For each finding, use red/green TDD:',
+              '   - Write a failing test that reproduces the issue (red)',
+              '   - Implement the fix (green)',
+              '   - Run tests to confirm no regressions',
+              '4. If a fix breaks tests, revert it and move on',
+              '5. After all fixes, manually verify: curl affected APIs or build frontend',
+              `6. Commit message must include [ai-fix-cycle-${cycle}]`,
+              '',
+              '**Rules:**',
+              '- Fix the source code, NOT the tests',
+              '- Keep fixes minimal and focused — don\'t refactor surrounding code',
+              '- For CRITICAL findings, add a brief code comment explaining the fix',
+              '- Do not modify infrastructure code unless the finding specifically targets it',
+              '',
+              `**Findings (cycle ${cycle}/2):**`,
+              '',
+              findings,
+            ].join('\n');
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
