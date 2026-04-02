@@ -412,18 +412,39 @@ jobs:
           script: |
             const cycle = '${{ steps.cycle.outputs.cycle }}';
             const findings = process.env.FINDINGS_SUMMARY;
-            const body = `@claude [ai-fix-cycle-${cycle}] Fix the following code review findings. ` +
-              `Read .github/prompts/fix.md for detailed instructions.\n\n` +
-              `**Available tools:** Glob, Grep, LS, Read, Bash (git add, git commit, git push, git rm). ` +
-              `Use Bash to write/edit files (e.g. sed, cat, echo). Do NOT attempt to use Write or Edit tools — they are not available.\n\n` +
-              `**Rules:**\n` +
-              `- Read the PR description to understand the feature context before fixing\n` +
-              `- Fix the source code, NOT the tests\n` +
-              `- Run tests after each fix (see CLAUDE.md for commands)\n` +
-              `- If a fix breaks tests, revert it\n` +
-              `- Only keep fixes where all tests still pass\n` +
-              `- Commit message must include [ai-fix-cycle-${cycle}]\n\n` +
-              `**Findings (cycle ${cycle}/2):**\n\n${findings}`;
+            const body = [
+              `@claude [ai-fix-cycle-${cycle}] You are the principal-engineer (tech lead). Fix the following code review findings.`,
+              '',
+              '**Setup — read these files first:**',
+              '1. `CLAUDE.md` — project context',
+              '2. `.claude/agents/principal-engineer.md` — your role and standards',
+              '3. `.claude/rules/code-quality.md` — architecture standards',
+              '4. Read additional `.claude/rules/` files based on which files need fixing (security.md, frontend.md, infrastructure.md, backend.md)',
+              '',
+              '**Process:**',
+              '1. Read each finding carefully — understand the root cause before changing anything',
+              '2. Establish baseline: run all test suites first',
+              '   - Frontend: `cd frontend && npm ci && npm test -- --run`',
+              '   - Backend: `cd backend && pip install pytest moto boto3 && pytest --tb=short`',
+              '   - CDK: `cd infra && pip install -r requirements.txt && pytest --tb=short`',
+              '3. For each finding, use red/green TDD:',
+              '   - Write a failing test that reproduces the issue (red)',
+              '   - Implement the fix (green)',
+              '   - Run tests to confirm no regressions',
+              '4. If a fix breaks tests, revert it and move on',
+              '5. After all fixes, manually verify: curl affected APIs or build frontend',
+              `6. Commit message must include [ai-fix-cycle-${cycle}]`,
+              '',
+              '**Rules:**',
+              '- Fix the source code, NOT the tests',
+              '- Keep fixes minimal and focused — don\'t refactor surrounding code',
+              '- For CRITICAL findings, add a brief code comment explaining the fix',
+              '- Do not modify infrastructure code unless the finding specifically targets it',
+              '',
+              `**Findings (cycle ${cycle}/2):**`,
+              '',
+              findings,
+            ].join('\n');
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
