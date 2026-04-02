@@ -84,7 +84,7 @@
 /* Danger - Destructive action */
 .danger {
   background-color: var(--color-error);
-  color: var(--color-text-on-primary);
+  color: #FFFFFF;
   box-shadow: var(--shadow-sm);
 }
 
