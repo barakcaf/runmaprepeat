@@ -271,6 +271,7 @@ jobs:
               core.setFailed(`Review step failed with outcome: ${reviewOutcome}`);
               core.setOutput('has_findings', 'false');
               core.setOutput('findings_summary', '');
+              core.setOutput('all_findings_summary', '');
               return;
             }
 
@@ -291,6 +292,7 @@ jobs:
               core.setFailed('Review completed but principal-engineer did not post a summary comment. Review may have been a no-op.');
               core.setOutput('has_findings', 'false');
               core.setOutput('findings_summary', '');
+              core.setOutput('all_findings_summary', '');
               return;
             }
 
@@ -301,12 +303,15 @@ jobs:
               core.setFailed('Summary comment exists but missing verdict (Ready for Merge / Blocking findings). Review may be incomplete.');
               core.setOutput('has_findings', 'false');
               core.setOutput('findings_summary', '');
+              core.setOutput('all_findings_summary', '');
               return;
             }
 
             const hasBlockers = summaryComment.body.includes('❌ Blocking findings');
 
-            // Extract findings from inline review comments for the fix agent
+            // Extract findings from inline review comments — ONLY from this review cycle
+            // Filter by the current HEAD SHA to avoid stale findings from previous reviews
+            const headSha = '${{ github.event.pull_request.head.sha }}';
             const reviews = await github.rest.pulls.listReviewComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -314,17 +319,71 @@ jobs:
               per_page: 50,
             });
 
-            const botFindings = reviews.data
-              .filter(c =>
-                (c.user.login === 'github-actions[bot]' || c.user.login === 'runmaprepeat-autofix[bot]') &&
-                (c.body.includes('🔴') || c.body.includes('🟠') || c.body.includes('🟡'))
-              )
+            const botComments = reviews.data.filter(c =>
+              (c.user.login === 'github-actions[bot]' || c.user.login === 'runmaprepeat-autofix[bot]') &&
+              c.commit_id === headSha
+            );
+
+            // Split by severity
+            const blockerFindings = botComments
+              .filter(c => c.body.includes('🔴') || c.body.includes('🟠'))
+              .map(c => `- [${c.path}:${c.line || c.original_line}] ${c.body.substring(0, 300)}`)
+              .join('\n');
+
+            const mediumFindings = botComments
+              .filter(c => c.body.includes('🟡'))
+              .map(c => ({
+                path: c.path,
+                line: c.line || c.original_line,
+                body: c.body.substring(0, 500),
+              }));
+
+            const allFindings = botComments
+              .filter(c => c.body.includes('🔴') || c.body.includes('🟠') || c.body.includes('🟡') || c.body.includes('🟢'))
               .map(c => `- [${c.path}:${c.line || c.original_line}] ${c.body.substring(0, 300)}`)
               .join('\n');
 
             core.setOutput('has_findings', hasBlockers ? 'true' : 'false');
-            core.setOutput('findings_summary', botFindings || 'No findings extracted');
-            console.log(`✅ Review validated: verdict=${hasBlockers ? 'blocking' : 'clean'}, inline comments=${reviews.data.length}`);
+            core.setOutput('findings_summary', blockerFindings || 'No findings extracted');
+            core.setOutput('all_findings_summary', allFindings || 'No findings');
+            core.setOutput('medium_findings', JSON.stringify(mediumFindings));
+            console.log(`✅ Review validated: verdict=${hasBlockers ? 'blocking' : 'clean'}, this-cycle comments=${botComments.length}, medium=${mediumFindings.length}`);
+
+      - name: Create issues for MEDIUM findings
+        if: always() && steps.check-findings.outputs.medium_findings != '[]'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const prTitle = context.payload.pull_request.title;
+            const findings = JSON.parse('${{ steps.check-findings.outputs.medium_findings }}' || '[]');
+
+            for (const f of findings) {
+              const title = `fix: [AI Review] ${f.path} — medium finding from PR #${prNumber}`;
+              const body = [
+                `## Source`,
+                `Found by AI review (principal-engineer) on PR #${prNumber}: ${prTitle}`,
+                '',
+                `## Location`,
+                `\`${f.path}:${f.line}\``,
+                '',
+                `## Finding`,
+                f.body,
+                '',
+                `## Priority`,
+                'Low — auto-created from MEDIUM review finding. Can be batch-fixed later.',
+              ].join('\n');
+
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['bug', 'low-priority', 'ai-review'],
+              });
+              console.log(`Created issue for ${f.path}:${f.line}`);
+            }
 
       - name: Notify via Telegram
         if: always() && steps.review.outcome != 'cancelled'
@@ -339,6 +398,7 @@ jobs:
             const prUrl = context.payload.pull_request.html_url;
             const hasBlockers = '${{ steps.check-findings.outputs.has_findings }}' === 'true';
             const reviewOutcome = '${{ steps.review.outcome }}';
+            const allFindings = `${{ steps.check-findings.outputs.all_findings_summary }}`;
 
             let emoji, status;
             if (reviewOutcome !== 'success') {
@@ -349,7 +409,15 @@ jobs:
               emoji = '✅'; status = 'Ready for Merge';
             }
 
-            const message = `${emoji} <b>AI Review</b> — PR #${prNumber} — ${status}\n<a href="${prUrl}">${prTitle}</a>`;
+            let message = `${emoji} <b>AI Review</b> — PR #${prNumber} — ${status}\n<a href="${prUrl}">${prTitle}</a>`;
+
+            // Include all findings summary in notification
+            if (allFindings && allFindings !== 'No findings') {
+              const lines = allFindings.split('\n').slice(0, 5);
+              const truncated = lines.join('\n') + (allFindings.split('\n').length > 5 ? '\n...' : '');
+              message += `\n\n<pre>${truncated.substring(0, 500)}</pre>`;
+            }
+
             const token = process.env.TELEGRAM_BOT_TOKEN;
             const chatId = process.env.TELEGRAM_CHAT_ID;
             if (token && chatId) {
