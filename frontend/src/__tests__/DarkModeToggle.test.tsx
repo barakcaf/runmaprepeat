@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { axe } from "vitest-axe";
-import { toHaveNoViolations } from "vitest-axe/matchers";
+import { toHaveNoViolations } from "vitest-axe/dist/matchers";
 import { DarkModeToggle } from "../components/DarkModeToggle/DarkModeToggle";
 import { ThemeProvider } from "../providers/ThemeProvider";
 
