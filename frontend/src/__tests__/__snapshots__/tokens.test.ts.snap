@@ -1,0 +1,128 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Design System Tokens > should define all required color tokens 1`] = `
+{
+  "brand": [
+    "--color-primary",
+    "--color-primary-hover",
+    "--color-primary-subtle",
+    "--color-secondary",
+    "--color-secondary-hover",
+    "--color-secondary-subtle",
+  ],
+  "chart": [
+    "--color-chart-1",
+    "--color-chart-2",
+    "--color-chart-3",
+    "--color-chart-bg",
+    "--color-chart-grid",
+    "--color-chart-text",
+  ],
+  "neutral": [
+    "--color-bg-primary",
+    "--color-bg-secondary",
+    "--color-bg-tertiary",
+    "--color-border-primary",
+    "--color-border-secondary",
+    "--color-text-primary",
+    "--color-text-secondary",
+    "--color-text-tertiary",
+    "--color-text-on-primary",
+  ],
+  "semantic": [
+    "--color-success",
+    "--color-success-subtle",
+    "--color-warning",
+    "--color-warning-subtle",
+    "--color-error",
+    "--color-error-subtle",
+  ],
+  "utility": [
+    "--color-focus-ring",
+    "--color-overlay",
+  ],
+}
+`;
+
+exports[`Design System Tokens > should define all required component tokens 1`] = `
+{
+  "radius": [
+    "--radius-sm",
+    "--radius-md",
+    "--radius-lg",
+    "--radius-xl",
+    "--radius-full",
+  ],
+  "shadows": [
+    "--shadow-sm",
+    "--shadow-md",
+    "--shadow-lg",
+    "--shadow-xl",
+  ],
+  "transitions": [
+    "--duration-fast",
+    "--duration-normal",
+    "--duration-slow",
+    "--ease-default",
+    "--ease-in",
+    "--ease-out",
+    "--ease-spring",
+    "--transition-colors",
+    "--transition-shadow",
+    "--transition-transform",
+  ],
+  "zIndex": [
+    "--z-base",
+    "--z-dropdown",
+    "--z-sticky",
+    "--z-overlay",
+    "--z-modal",
+    "--z-toast",
+    "--z-nav",
+  ],
+}
+`;
+
+exports[`Design System Tokens > should define all required spacing tokens 1`] = `
+[
+  "--space-1",
+  "--space-2",
+  "--space-3",
+  "--space-4",
+  "--space-5",
+  "--space-6",
+  "--space-8",
+  "--space-10",
+  "--space-12",
+  "--space-16",
+]
+`;
+
+exports[`Design System Tokens > should define all required typography tokens 1`] = `
+{
+  "fonts": [
+    "--font-sans",
+    "--font-mono",
+  ],
+  "lineHeights": [
+    "--leading-tight",
+    "--leading-normal",
+    "--leading-relaxed",
+  ],
+  "sizes": [
+    "--text-xs",
+    "--text-sm",
+    "--text-base",
+    "--text-lg",
+    "--text-xl",
+    "--text-2xl",
+    "--text-3xl",
+  ],
+  "weights": [
+    "--font-weight-normal",
+    "--font-weight-medium",
+    "--font-weight-semibold",
+    "--font-weight-bold",
+  ],
+}
+`;

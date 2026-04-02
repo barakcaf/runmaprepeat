@@ -1,0 +1,117 @@
+/* Design System Colors - Light Mode Defaults */
+:root {
+  /* Brand Colors */
+  --color-primary: #F26522;
+  --color-primary-hover: #D9551A;
+  --color-primary-subtle: #FFF0E8;
+  --color-secondary: #1A73E8;
+  --color-secondary-hover: #1557B0;
+  --color-secondary-subtle: #E8F0FE;
+
+  /* Semantic Colors */
+  --color-success: #1B873A;
+  --color-success-subtle: #DAFBE1;
+  --color-warning: #BF6A02;
+  --color-warning-subtle: #FFF5E0;
+  --color-error: #CF222E;
+  --color-error-subtle: #FFEBE9;
+
+  /* Neutral Colors */
+  --color-bg-primary: #FFFFFF;
+  --color-bg-secondary: #F6F8FA;
+  --color-bg-tertiary: #EAEEF2;
+  --color-border-primary: #D0D7DE;
+  --color-border-secondary: #EAEEF2;
+  --color-text-primary: #1F2328;
+  --color-text-secondary: #656D76;
+  --color-text-tertiary: #767B83;
+  --color-text-on-primary: #FFFFFF;
+
+  /* Utility Colors */
+  --color-focus-ring: #2563EB;
+  --color-overlay: rgba(0, 0, 0, 0.5);
+
+  /* Chart Colors (Colorblind-Safe) */
+  --color-chart-1: var(--color-primary);
+  --color-chart-2: var(--color-secondary);
+  --color-chart-3: #8B5CF6;
+  --color-chart-bg: var(--color-bg-tertiary);
+  --color-chart-grid: var(--color-border-secondary);
+  --color-chart-text: var(--color-text-secondary);
+}
+
+/* Dark Mode - Explicit Theme Override */
+:root[data-theme="dark"] {
+  /* Brand Colors */
+  --color-primary: #F27B3D;
+  --color-primary-hover: #F26522;
+  --color-primary-subtle: #3D2012;
+  --color-secondary: #5BA3F5;
+  --color-secondary-hover: #1A73E8;
+  --color-secondary-subtle: #12283D;
+
+  /* Semantic Colors */
+  --color-success: #3FB950;
+  --color-success-subtle: #0D2818;
+  --color-warning: #D29922;
+  --color-warning-subtle: #3D2A05;
+  --color-error: #F85149;
+  --color-error-subtle: #3D1215;
+
+  /* Neutral Colors */
+  --color-bg-primary: #0D1117;
+  --color-bg-secondary: #161B22;
+  --color-bg-tertiary: #21262D;
+  --color-border-primary: #30363D;
+  --color-border-secondary: #21262D;
+  --color-text-primary: #E6EDF3;
+  --color-text-secondary: #8B949E;
+  --color-text-tertiary: #848D97;
+  --color-text-on-primary: #FFFFFF;
+
+  /* Utility Colors */
+  --color-focus-ring: #58A6FF;
+  --color-overlay: rgba(0, 0, 0, 0.7);
+
+  /* Chart Colors */
+  --color-chart-3: #A78BFA;
+}
+
+/* Dark Mode - System Preference (Auto-detect) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* Brand Colors */
+    --color-primary: #F27B3D;
+    --color-primary-hover: #F26522;
+    --color-primary-subtle: #3D2012;
+    --color-secondary: #5BA3F5;
+    --color-secondary-hover: #1A73E8;
+    --color-secondary-subtle: #12283D;
+
+    /* Semantic Colors */
+    --color-success: #3FB950;
+    --color-success-subtle: #0D2818;
+    --color-warning: #D29922;
+    --color-warning-subtle: #3D2A05;
+    --color-error: #F85149;
+    --color-error-subtle: #3D1215;
+
+    /* Neutral Colors */
+    --color-bg-primary: #0D1117;
+    --color-bg-secondary: #161B22;
+    --color-bg-tertiary: #21262D;
+    --color-border-primary: #30363D;
+    --color-border-secondary: #21262D;
+    --color-text-primary: #E6EDF3;
+    --color-text-secondary: #8B949E;
+    --color-text-tertiary: #848D97;
+    --color-text-on-primary: #FFFFFF;
+
+    /* Utility Colors */
+    --color-focus-ring: #58A6FF;
+    --color-overlay: rgba(0, 0, 0, 0.7);
+
+    /* Chart Colors */
+    --color-chart-3: #A78BFA;
+  }
+}
