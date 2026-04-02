@@ -1,13 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
-import { axe, toHaveNoViolations } from "jest-axe";
+import axe from "axe-core";
 import { ChartAccessibility } from "../components/ui/ChartAccessibility";
-
-expect.extend(toHaveNoViolations);
 
 describe("ChartAccessibility", () => {
   const columns = ["Week", "Distance (km)", "Runs"];
-  const data = [
+  const data: (string | number)[][] = [
     ["Week 1", 15.2, 3],
     ["Week 2", 20.5, 4],
     ["Week 3", 18.0, 3],
@@ -69,7 +67,6 @@ describe("ChartAccessibility", () => {
       </ChartAccessibility>
     );
     const rows = screen.getAllByRole("row");
-    // 1 header row + 3 data rows
     expect(rows).toHaveLength(4);
   });
 
@@ -90,7 +87,7 @@ describe("ChartAccessibility", () => {
         <div>Chart</div>
       </ChartAccessibility>
     );
-    const results = await axe(container);
-    expect(results).toHaveNoViolations();
+    const results = await axe.run(container);
+    expect(results.violations).toHaveLength(0);
   });
 });

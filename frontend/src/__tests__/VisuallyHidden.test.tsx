@@ -1,9 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
-import { axe, toHaveNoViolations } from "jest-axe";
+import axe from "axe-core";
 import { VisuallyHidden } from "../components/ui/VisuallyHidden";
-
-expect.extend(toHaveNoViolations);
 
 describe("VisuallyHidden", () => {
   it("renders children text", () => {
@@ -33,7 +31,7 @@ describe("VisuallyHidden", () => {
     const { container } = render(
       <VisuallyHidden>Screen reader text</VisuallyHidden>
     );
-    const results = await axe(container);
-    expect(results).toHaveNoViolations();
+    const results = await axe.run(container);
+    expect(results.violations).toHaveLength(0);
   });
 });

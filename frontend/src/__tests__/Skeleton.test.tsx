@@ -1,9 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
-import { axe, toHaveNoViolations } from "jest-axe";
+import axe from "axe-core";
 import { Skeleton } from "../components/ui/Skeleton";
-
-expect.extend(toHaveNoViolations);
 
 describe("Skeleton", () => {
   it("renders with role=status and loading label", () => {
@@ -54,7 +52,7 @@ describe("Skeleton", () => {
 
   it("has no accessibility violations", async () => {
     const { container } = render(<Skeleton />);
-    const results = await axe(container);
-    expect(results).toHaveNoViolations();
+    const results = await axe.run(container);
+    expect(results.violations).toHaveLength(0);
   });
 });

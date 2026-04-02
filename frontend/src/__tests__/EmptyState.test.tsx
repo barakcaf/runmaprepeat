@@ -1,10 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
-import { axe, toHaveNoViolations } from "jest-axe";
+import axe from "axe-core";
 import { EmptyState } from "../components/ui/EmptyState";
-
-expect.extend(toHaveNoViolations);
 
 describe("EmptyState", () => {
   it("renders title", () => {
@@ -79,7 +77,7 @@ describe("EmptyState", () => {
         action={{ label: "Add", onClick: vi.fn() }}
       />
     );
-    const results = await axe(container);
-    expect(results).toHaveNoViolations();
+    const results = await axe.run(container);
+    expect(results.violations).toHaveLength(0);
   });
 });

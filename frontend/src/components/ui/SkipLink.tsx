@@ -1,9 +1,14 @@
 import styles from "./SkipLink.module.css";
 
-export function SkipLink() {
+interface SkipLinkProps {
+  href?: string;
+  children?: React.ReactNode;
+}
+
+export function SkipLink({ href = "#main-content", children = "Skip to main content" }: SkipLinkProps) {
   return (
-    <a className={styles.skipLink} href="#main-content">
-      Skip to main content
+    <a className={styles.skipLink} href={href}>
+      {children}
     </a>
   );
 }

@@ -1,10 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
-import { axe, toHaveNoViolations } from "jest-axe";
+import axe from "axe-core";
 import { ErrorState } from "../components/ui/ErrorState";
-
-expect.extend(toHaveNoViolations);
 
 describe("ErrorState", () => {
   it("renders with role=alert", () => {
@@ -51,7 +49,7 @@ describe("ErrorState", () => {
     const { container } = render(
       <ErrorState message="Something went wrong" onRetry={vi.fn()} />
     );
-    const results = await axe(container);
-    expect(results).toHaveNoViolations();
+    const results = await axe.run(container);
+    expect(results.violations).toHaveLength(0);
   });
 });
