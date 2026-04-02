@@ -2,6 +2,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ProfilePage } from "../pages/ProfilePage";
+import { ThemeProvider } from "../providers/ThemeProvider";
 
 const mockSignOut = vi.fn();
 
@@ -24,11 +25,26 @@ vi.mock("../api/client", () => ({
   updateProfile: (...args: unknown[]) => mockUpdateProfile(...args),
 }));
 
+// Mock matchMedia for ThemeProvider
+Object.defineProperty(window, "matchMedia", {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+});
+
 function renderPage() {
   return render(
-    <MemoryRouter>
-      <ProfilePage />
-    </MemoryRouter>
+    <ThemeProvider>
+      <MemoryRouter>
+        <ProfilePage />
+      </MemoryRouter>
+    </ThemeProvider>
   );
 }
 
