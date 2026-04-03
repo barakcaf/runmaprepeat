@@ -385,3 +385,91 @@ For ~5-10 PRs/week, averaging 500 lines changed per PR:
 
 CLAUDE.md                      # Root config — build commands, project rules
 ```
+
+---
+
+## 10. Notification Flow
+
+Every stage of the pipeline sends a Telegram notification so the developer knows exactly what's happening without checking the Actions tab.
+
+| # | Event | Workflow | Emoji | Content |
+|---|-------|----------|-------|---------|
+| 1 | **CI started** | `pr-review.yml` (test job) | 🔄 | PR number, title, run link |
+| 2 | **AI review started** | `pr-review.yml` (review job) | 🔍 | PR number, title |
+| 3 | **AI review completed** | `pr-review.yml` (review job) | ✅/🔍 | Verdict (Ready for Merge / Blocking), findings summary |
+| 4 | **Auto-fix running** | `claude-fix.yml` (fix job) | 🛠 | PR number, cycle count, run link |
+| 5 | **Auto-fix completed** | `claude-fix.yml` (fix job) | 🔧/⚠️ | Success with commit details, or failure with error |
+| 6 | **Auto-fix limit reached** | `pr-review.yml` (trigger-fix job) | ⚠️ | Posted as PR comment (max 2 cycles) |
+
+### Notification Timeline (typical PR with findings)
+
+```
+🔄 CI Started — PR #167
+    ↓ (tests run ~2 min)
+🔍 AI Review Started — PR #167
+    ↓ (review runs ~3 min)
+🔍 AI Review — PR #167 — Blocking Findings
+    2 HIGH: contrast failures, missing aria-label
+    ↓ (trigger-fix posts @claude comment)
+🛠 Auto-Fix Running — PR #167 (cycle 1)
+    ↓ (fix agent runs ~5 min)
+🔧 Auto-Fix Applied — PR #167
+    Cycle 1: 2 findings addressed
+    ↓ (push triggers re-review)
+🔄 CI Started — PR #167
+    ↓
+🔍 AI Review Started — PR #167
+    ↓
+✅ AI Review — PR #167 — Ready for Merge
+```
+
+### Implementation
+
+All notifications use the same pattern — `actions/github-script` calling the Telegram Bot API with HTML formatting and a plain-text retry fallback:
+
+```javascript
+const message = `${emoji} <b>${status}</b> — PR #${prNumber}\n<a href="${prUrl}">${prTitle}</a>`;
+await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML', disable_web_page_preview: true })
+});
+```
+
+Secrets: `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` stored in GitHub repo secrets. Notifications are best-effort — failures are logged but don't block the pipeline.
+
+---
+
+## 11. Metrics & Observability (Planned)
+
+**Tracked in:** [Issue #209](https://github.com/barakcaf/runmaprepeat/issues/209)
+
+### Per-PR Metrics
+- Total CI time (end-to-end from push to all checks complete)
+- Individual step durations (tests, review, fix)
+- Number of review and fix cycles per PR
+- Findings count by severity
+
+### Cost Metrics
+- Bedrock token usage per review/fix (via inference profiles)
+- Estimated cost per PR (review + fix combined)
+- GitHub Actions minutes consumed
+
+### Aggregate Metrics
+- Average review time trend
+- Auto-fix success rate (% of fix cycles that resolve findings)
+- Cost per merged PR
+- Most common finding types
+
+---
+
+## 12. Lessons Learned
+
+| Lesson | Context |
+|--------|---------|
+| **`issue_comment` checkout defaults to main** | `actions/checkout` on `issue_comment` events checks out the default branch, not the PR branch. Must resolve PR head ref via API first, then pass `ref:` to checkout. Without this, the fix agent can't read any PR-only files and crashes. |
+| **GitHub App token required for triggers** | Comments posted with default `GITHUB_TOKEN` don't fire `issue_comment` workflows (GitHub anti-loop protection). Must use a GitHub App token. |
+| **Bot login format matters** | GitHub App bots are `appname[bot]` (e.g., `runmaprepeat-autofix[bot]`). Workflow `if` conditions must match exactly. |
+| **Don't auto-create issues for medium findings** | Auto-creating GitHub issues per medium finding floods the tracker with noise nobody acts on. Keep findings as inline PR comments only. |
+| **`cancel-in-progress: true` kills fix jobs** | Concurrency groups with cancel-in-progress will kill slow-running fix jobs when a re-review triggers. Use `false` for fix workflows. |
+| **`prompt` not `direct_prompt`** | `claude-code-action` uses `prompt` input. Invalid inputs like `direct_prompt` are silently ignored, causing no-op reviews. |
