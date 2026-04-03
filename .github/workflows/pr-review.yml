@@ -11,7 +11,6 @@ concurrency:
 permissions:
   contents: read
   pull-requests: write
-  checks: write
   id-token: write
 
 jobs:
@@ -65,7 +64,7 @@ jobs:
       - name: Run frontend tests
         id: frontend-tests
         working-directory: frontend
-        run: npm test -- --run 2>&1 | tee /tmp/frontend-test-output.txt
+        run: npm test -- --run
         continue-on-error: true
 
       - name: Install backend dependencies
@@ -77,7 +76,7 @@ jobs:
       - name: Run backend tests
         id: backend-tests
         working-directory: backend
-        run: pytest --tb=short 2>&1 | tee /tmp/backend-test-output.txt
+        run: pytest --tb=short
         continue-on-error: true
 
       - name: Install CDK dependencies
@@ -87,7 +86,7 @@ jobs:
       - name: Run CDK tests
         id: cdk-tests
         working-directory: infra
-        run: pytest --tb=short 2>&1 | tee /tmp/cdk-test-output.txt
+        run: pytest --tb=short
         continue-on-error: true
 
       - name: Post test results on PR
@@ -138,6 +137,7 @@ jobs:
             }
 
       - name: Gate — fail if any tests failed
+        id: gate
         if: always()
         run: |
           if [ "${{ steps.frontend-tests.outcome }}" = "failure" ] || \
@@ -147,6 +147,37 @@ jobs:
             exit 1
           fi
           echo "✅ All tests passed"
+
+      - name: Notify CI completed
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        with:
+          script: |
+            try {
+              const prTitle = context.payload.pull_request.title;
+              const prNumber = context.payload.pull_request.number;
+              const prUrl = context.payload.pull_request.html_url;
+              const fe = '${{ steps.frontend-tests.outcome }}';
+              const be = '${{ steps.backend-tests.outcome }}';
+              const cdk = '${{ steps.cdk-tests.outcome }}';
+              const allPassed = fe === 'success' && be === 'success' && cdk === 'success';
+              const icon = (s) => s === 'success' ? '✅' : s === 'failure' ? '❌' : '⚠️';
+              const emoji = allPassed ? '✅' : '❌';
+              const status = allPassed ? 'Tests Passed' : 'Tests Failed';
+              const message = `${emoji} <b>${status}</b> — PR #${prNumber}\n<a href="${prUrl}">${prTitle}</a>\nFrontend ${icon(fe)} | Backend ${icon(be)} | CDK ${icon(cdk)}`;
+              const token = process.env.TELEGRAM_BOT_TOKEN;
+              const chatId = process.env.TELEGRAM_CHAT_ID;
+              if (token && chatId) {
+                await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML', disable_web_page_preview: true })
+                });
+              }
+            } catch (e) { console.log('CI complete notification error:', e.message); }
 
   review:
     name: AI Code Review
@@ -293,8 +324,6 @@ jobs:
             if (reviewOutcome !== 'success') {
               core.setFailed(`Review step failed with outcome: ${reviewOutcome}`);
               core.setOutput('has_findings', 'false');
-              core.setOutput('findings_summary', '');
-              core.setOutput('all_findings_summary', '');
               return;
             }
 
@@ -308,28 +337,14 @@ jobs:
 
             // Match by run_id marker injected by the review prompt
             const runMarker = `<!-- review-run:${runId} -->`;
-            let summaryComment = comments.data.reverse().find(c =>
+            const summaryComment = comments.data.reverse().find(c =>
               c.body.includes(runMarker) &&
               (c.user.login === 'github-actions[bot]' || c.user.login === 'runmaprepeat-autofix[bot]')
             );
 
-            // Fallback: if marker not found (backwards compat), use latest summary
-            // but ONLY if it was created after this workflow run started
-            // TODO: Remove this fallback after 2-3 PR cycles once all reviews have the marker
-            if (!summaryComment) {
-              const runStarted = new Date('${{ github.event.pull_request.updated_at }}');
-              summaryComment = comments.data.find(c =>
-                c.body.includes('🤖 AI Code Review') &&
-                (c.user.login === 'github-actions[bot]' || c.user.login === 'runmaprepeat-autofix[bot]') &&
-                new Date(c.created_at) >= runStarted
-              );
-            }
-
             if (!summaryComment) {
               core.setFailed('Review completed but principal-engineer did not post a summary comment for this run. Review may have been a no-op.');
               core.setOutput('has_findings', 'false');
-              core.setOutput('findings_summary', '');
-              core.setOutput('all_findings_summary', '');
               return;
             }
 
@@ -341,8 +356,6 @@ jobs:
             if (!hasVerdict) {
               core.setFailed('Summary comment exists but missing verdict (Ready for Merge / Blocking findings). Review may be incomplete.');
               core.setOutput('has_findings', 'false');
-              core.setOutput('findings_summary', '');
-              core.setOutput('all_findings_summary', '');
               return;
             }
 
@@ -367,14 +380,6 @@ jobs:
               .filter(c => c.body.includes('🔴') || c.body.includes('🟠'))
               .map(c => `- [${c.path}:${c.line || c.original_line}] ${c.body.substring(0, 300)}`)
               .join('\n');
-
-            const mediumFindings = botComments
-              .filter(c => c.body.includes('🟡'))
-              .map(c => ({
-                path: c.path,
-                line: c.line || c.original_line,
-                body: c.body.substring(0, 500),
-              }));
 
             let allFindings = botComments
               .filter(c => c.body.includes('🔴') || c.body.includes('🟠') || c.body.includes('🟡') || c.body.includes('🟢'))
@@ -405,7 +410,6 @@ jobs:
             core.setOutput('has_findings', hasBlockers ? 'true' : 'false');
             core.setOutput('findings_summary', blockerFindings || 'No findings extracted');
             core.setOutput('all_findings_summary', allFindings || 'No findings');
-            core.setOutput('medium_findings', JSON.stringify(mediumFindings));
 
             // Also pass the full summary comment body as fallback context for auto-fix
             if (hasBlockers) {
@@ -414,7 +418,7 @@ jobs:
               core.setOutput('summary_findings_section', findingsSection ? findingsSection[0].substring(0, 2000) : '');
             }
 
-            console.log(`✅ Review validated: verdict=${hasBlockers ? 'blocking' : 'clean'}, inline=${botComments.length}, medium=${mediumFindings.length}, fallback=${!blockerFindings ? 'used' : 'not needed'}`);
+            console.log(`✅ Review validated: verdict=${hasBlockers ? 'blocking' : 'clean'}, inline=${botComments.length}, fallback=${!blockerFindings ? 'used' : 'not needed'}`);
 
             // Gate 4: FAIL the check if there are blocking findings
             if (hasBlockers) {
