@@ -44,11 +44,25 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
+      - name: Get PR head ref
+        id: pr-ref
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.issue.number,
+            });
+            core.setOutput('ref', pr.head.ref);
+
       - name: Checkout PR branch
         id: checkout
         uses: actions/checkout@v4
         with:
           token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ steps.pr-ref.outputs.ref }}
           fetch-depth: 0
 
       - name: Run Claude Code
