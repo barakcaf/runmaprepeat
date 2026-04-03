@@ -15,6 +15,8 @@ Every workflow run records timing, token usage, findings count, and cost estimat
 
 Estimated cost for the metrics infrastructure itself: **$0/month** (all within free tier).
 
+**Security Review:** Completed 2026-04-03 by security-engineer + principal-engineer. Two HIGH severity issues identified and remediated in this design. See Section 16 for full security assessment.
+
 ---
 
 ## 1. Architecture Overview
@@ -215,6 +217,7 @@ At ~10 PRs/week, the `METRICS` partition gets ~40-50 items/month. Hot partition 
   "findings_low": 1,
   "review_verdict": "blocking",
   "estimated_cost_usd": 1.38,
+  "pricing_version": "2026-04",
   "fix_cycle": 1,
   "fix_duration_ms": 120000,
   "fix_input_tokens": 45000,
@@ -402,6 +405,13 @@ Fix Cycles: 4 (3 success, 1 failure)
 
 ### 7.1 pr-review.yml — New `emit-metrics` Job
 
+**Implementation Note:** The `actions/github-script@v7` action does NOT include the AWS SDK by default. You must either:
+1. Use a custom action that bundles the AWS SDK, OR
+2. Install the AWS SDK in a prior step (e.g., `npm install @aws-sdk/client-dynamodb @aws-sdk/client-cloudwatch`), OR
+3. Use a dedicated Lambda function or AWS CLI instead of inline JavaScript
+
+The sample below assumes option #2 (install step added).
+
 ```yaml
 emit-metrics:
   name: Emit Review Metrics
@@ -415,6 +425,9 @@ emit-metrics:
       with:
         role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
         aws-region: us-east-1
+
+    - name: Install AWS SDK for metrics collection
+      run: npm install @aws-sdk/client-dynamodb @aws-sdk/client-cloudwatch
 
     - name: Collect and emit metrics
       uses: actions/github-script@v7
@@ -559,6 +572,8 @@ const body = [
 
 Additional permissions needed on the existing OIDC role:
 
+### DynamoDB Access (Scoped to Metrics Table)
+
 ```json
 {
   "Effect": "Allow",
@@ -574,15 +589,39 @@ Additional permissions needed on the existing OIDC role:
 }
 ```
 
+### CloudWatch Metrics Access (Read-Only, Namespace-Scoped)
+
 ```json
 {
   "Effect": "Allow",
   "Action": "cloudwatch:GetMetricData",
-  "Resource": "*"
+  "Resource": "*",
+  "Condition": {
+    "StringEquals": {
+      "cloudwatch:namespace": "AWS/Bedrock"
+    }
+  }
 }
 ```
 
-Note: `cloudwatch:GetMetricData` does not support resource-level permissions — `Resource: "*"` is required. This is read-only access.
+**Security Note:** While `cloudwatch:GetMetricData` does not support resource-level ARN restrictions, we apply a condition to limit queries to the `AWS/Bedrock` namespace only. This prevents the role from reading arbitrary CloudWatch metrics and limits blast radius if the role is compromised.
+
+### OIDC Trust Policy (Tightened)
+
+The existing trust policy should restrict branch access. Recommended trust policy `Condition`:
+
+```json
+{
+  "StringLike": {
+    "token.actions.githubusercontent.com:sub": [
+      "repo:barakcaf/runmaprepeat:ref:refs/heads/main",
+      "repo:barakcaf/runmaprepeat:pull_request"
+    ]
+  }
+}
+```
+
+This allows metrics collection from main branch deploys and PR workflows, but blocks arbitrary branches from assuming the role.
 
 ---
 
@@ -615,8 +654,10 @@ class MetricsStack(Stack):
                 name="SK", type=dynamodb.AttributeType.STRING,
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-            removal_policy=RemovalPolicy.DESTROY,  # Metrics are reproducible
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,  # REQUIRED: Encryption at rest
+            removal_policy=RemovalPolicy.DESTROY,  # Metrics are reproducible from GitHub history
             time_to_live_attribute="ttl",
+            point_in_time_recovery=True,  # Recommended for audit trail
         )
 
         self.metrics_table.add_global_secondary_index(
@@ -662,37 +703,72 @@ The chosen approach (DynamoDB + Telegram) has zero marginal cost.
 Deliver value immediately with no AWS API calls beyond DynamoDB:
 
 1. Create `MetricsStack` in CDK with `RunMapRepeat-Metrics` table + GSI
+   - **Must include:** `encryption=dynamodb.TableEncryption.AWS_MANAGED` (see Section 14, HIGH-2)
+   - **Must include:** `point_in_time_recovery=True` for audit trail
 2. Add timing `date` commands to test job, expose as outputs
 3. Add findings count parsing to `check-findings` step (partially done already)
 4. Add `emit-metrics` job to `pr-review.yml` — writes timing + findings to DynamoDB
+   - **Must include:** AWS SDK installation step (see Section 7.1)
+   - **Must include:** Structured logging to prevent credential exposure (see Section 14, LOW-1)
 5. Add `emit-fix-metrics` step to `claude-fix.yml` — updates DynamoDB with fix outcome
-6. Add `[review-run:{run_id}]` marker to trigger comment for cross-workflow linking
-7. Add IAM permissions (`dynamodb:PutItem/UpdateItem/Query`) to OIDC role
+6. Add `[review-run:{run_id}]` marker to trigger comment for cross-workflow linking (already exists in summary comment; add to @claude comment)
+7. Add IAM permissions to OIDC role:
+   - `dynamodb:PutItem/UpdateItem/Query` scoped to `RunMapRepeat-Metrics` table
+   - Tighten trust policy to `main` branch and `pull_request` events (see Section 8)
+
+**Testing checklist:**
+- ✅ DynamoDB record created with all timing fields
+- ✅ No secrets (`GITHUB_TOKEN`, AWS credentials) appear in CloudWatch Logs
+- ✅ Metrics job failure does not break CI (`continue-on-error: true` works)
+- ✅ Cross-workflow correlation works (fix step finds review record)
 
 **No Bedrock token tracking yet** — simplifies testing. Token fields are written as `-1`.
 
 ### Phase 2: Bedrock Token Usage + Cost (1 PR)
 
 1. Add `cloudwatch:GetMetricData` to IAM policy
-2. Add CloudWatch query to `emit-metrics` job (review profile tokens)
-3. Add CloudWatch query to `emit-fix-metrics` step (fix profile tokens)
-4. Calculate and store `estimated_cost_usd`
-5. Handle CloudWatch delay: if no data, write sentinel, log warning
+   - **Must include:** `Condition` restricting `cloudwatch:namespace` to `AWS/Bedrock` (see Section 8, HIGH-1)
+2. Install AWS SDK for CloudWatch client (`@aws-sdk/client-cloudwatch`) in emit-metrics job
+3. Add CloudWatch query to `emit-metrics` job (review profile ARN: `x2ntqs4tet2b`)
+4. Add CloudWatch query to `emit-fix-metrics` step (fix profile ARN: `jk8gcjrpuokf`)
+5. Calculate and store `estimated_cost_usd` using formula:
+   - Review: `(input/1e6 * 15) + (output/1e6 * 75)` for Opus 4.6
+   - Fix: `(input/1e6 * 3) + (output/1e6 * 15)` for Sonnet 4
+6. Handle CloudWatch delay: if no data, write sentinel (`-1`), log warning
+7. Add `pricing_version` field (e.g., `"2026-04"`) for cost calculation traceability
 
-### Phase 3: Weekly Digest (1 PR)
+**Testing checklist:**
+- ✅ Token counts populated for successful reviews
+- ✅ Sentinel values (`-1`) written when CloudWatch data unavailable
+- ✅ Cost calculation matches manual verification
+- ✅ IAM condition prevents queries to non-Bedrock namespaces
 
-1. Create `metrics-digest.yml` — weekly cron schedule
+### Phase 3: Weekly Digest + Backfill (1 PR)
+
+1. Create `metrics-digest.yml` — weekly cron schedule (Monday 9am UTC)
 2. Query DynamoDB `GSI1` for records from last 7 days
-3. Compute aggregates: avg timing, total cost, fix success rate, findings distribution
-4. Compute week-over-week trends
-5. Format and send Telegram message
+3. **Backfill sentinel values:** For records with `review_input_tokens = -1`, retry CloudWatch query (metrics should be available after 7+ days)
+4. Compute aggregates: avg timing, total cost, fix success rate, findings distribution
+5. Compute week-over-week trends (compare to previous 7 days)
+6. Format and send Telegram message (see Section 6 for format)
+7. Filter out records with all sentinel values from cost calculations (incomplete data)
+
+**Testing checklist:**
+- ✅ Digest sent successfully to Telegram
+- ✅ Backfill recovers token counts for records initially written with `-1`
+- ✅ Week-over-week comparison handles first week (no prior data)
+- ✅ Digest filters out incomplete records from cost averages
 
 ### Phase 4: Enrichment (Optional, Future)
 
-1. GitHub Actions job summary (markdown table in each run)
-2. Alert if single PR cost exceeds $10
-3. Backfill script for historical runs
-4. Per-test-suite timing breakdown in test job outputs
+1. **Multiple fix cycles tracking:** Add `fix_history` List attribute to store all fix attempts per PR (see Section 15)
+   - Requires schema migration: backfill existing single fix data into List format
+   - Update `emit-fix-metrics` to append to List instead of overwriting flat fields
+2. GitHub Actions job summary (markdown table in each run showing metrics)
+3. Alert if single PR cost exceeds $10 (Telegram notification with 🚨 emoji)
+4. Backfill script for historical GitHub Actions runs (query Actions API, reconstruct metrics from logs)
+5. Per-test-suite timing breakdown in digest (frontend vs backend vs CDK trends)
+6. DynamoDB Streams audit logging (Lambda trigger to CloudWatch Logs for all table access)
 
 ---
 
@@ -700,13 +776,15 @@ Deliver value immediately with no AWS API calls beyond DynamoDB:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| CloudWatch Bedrock metrics delayed > 5 min | Medium | Low | Write sentinel (-1), backfill in digest or daily cron |
+| CloudWatch Bedrock metrics delayed > 5 min | Medium | Low | Write sentinel (-1), backfill in Phase 3 weekly digest |
 | `emit-metrics` job fails | Low | None | `continue-on-error: true` — metrics never block CI |
 | Cross-workflow correlation miss (review run_id not found) | Medium | Low | Fallback: write a new row instead of UpdateItem, link later |
-| Token attribution error (wrong time window) | Low | Low | Concurrency groups ensure one invocation per profile at a time |
-| Bedrock pricing changes | Medium | Low | Store raw token counts; cost is derived at read time |
-| DynamoDB GSI hot partition | Very Low | Very Low | ~50 items/month in `METRICS` partition, nowhere near hot |
-| GitHub Actions API rate limits | Very Low | Low | Single API call per run; well within limits |
+| Token attribution race (overlapping time windows for different PRs) | Low | Low | Concurrency groups prevent same-PR overlap; different-PR overlap is rare (see Section 15). Monitor weekly aggregates for anomalies. |
+| Multiple fix cycles overwrite previous fix data | Medium | Low | Phase 1 accepts limitation (stores only last fix). Phase 2+ uses List attribute for fix history (see Section 15). |
+| Bedrock pricing changes distort historical cost trends | Medium | Low | Store both raw tokens AND computed cost at write time (Section 15). |
+| DynamoDB GSI hot partition (constant `METRICS` PK) | Very Low | Very Low | ~50 items/month in `METRICS` partition, nowhere near hot. Shard by `METRICS#YYYY-MM` if volume grows to >1000 items/month. |
+| GitHub Actions API rate limits | Very Low | Low | Single API call per run; well within 5000/hour limit. |
+| AWS SDK missing in github-script action | High (if not addressed) | High (job fails) | Install AWS SDK in prior step (`npm install @aws-sdk/*`) — see Section 7.1. |
 
 ---
 
@@ -727,16 +805,198 @@ Deliver value immediately with no AWS API calls beyond DynamoDB:
 
 ---
 
-## 14. Open Questions
+## 14. Security Assessment
 
-1. **TTL duration** — 90 days seems right for a personal project. Should we go longer (180 days) for better trend analysis?
-2. **Backfill** — Worth writing a script to populate metrics from the ~2 weeks of existing pipeline runs?
-3. **Alert threshold** — What cost per PR should trigger an alert? Suggestion: $10 (3x current average).
-4. **Findings categorization** — Should we track finding *categories* (security, bugs, quality) in addition to severity? Would require parsing the summary comment more deeply.
+**Review Date:** 2026-04-03
+**Reviewers:** security-engineer + principal-engineer
+**Scope:** IAM policies, data sensitivity, encryption, credential exposure, side-channel risks
+
+### Findings Summary
+
+| Severity | Count | Status |
+|----------|-------|--------|
+| CRITICAL | 0 | — |
+| HIGH | 2 | ✅ Remediated in this design |
+| MEDIUM | 3 | ✅ Addressed with documentation |
+| LOW | 1 | ✅ Added to implementation checklist |
+
+### HIGH Severity (Remediated)
+
+#### [HIGH-1] CloudWatch IAM Policy — Overly Broad Resource Scope
+
+**Finding:** Initial draft used `cloudwatch:GetMetricData` with `Resource: "*"` without any conditions, allowing the role to query arbitrary CloudWatch metrics account-wide.
+
+**Remediation:** Added `Condition` restricting `cloudwatch:namespace` to `AWS/Bedrock` only (Section 8). This limits blast radius if the role is compromised.
+
+**Status:** ✅ Fixed in Section 8 (IAM Permissions).
+
+#### [HIGH-2] Missing Encryption at Rest
+
+**Finding:** DynamoDB metrics table definition lacked explicit encryption configuration, violating SLATS rule: "NEVER disable encryption at rest."
+
+**Remediation:** Added `encryption=dynamodb.TableEncryption.AWS_MANAGED` to table definition in Section 9 (CDK Changes). Also added `point_in_time_recovery=True` for audit trail.
+
+**Status:** ✅ Fixed in Section 9 (CDK Changes).
+
+### MEDIUM Severity (Documented)
+
+#### [MEDIUM-1] PII Exposure — PR Titles and Author Names
+
+**Finding:** Metrics table stores `pr_title` and `pr_author` (GitHub display names). While not classic PII, author names are personal data under GDPR, and PR titles may reveal unannounced features or internal codenames.
+
+**Risk:** If table access is misconfigured or credentials leak, attacker gains developer names (social engineering) and roadmap insight.
+
+**Mitigation:**
+- Reclassify as "Internal" data (not "Non-sensitive")
+- Scoped IAM permissions (Query by PK only, no Scan)
+- Encryption at rest (already enforced)
+- DynamoDB Streams audit logging (future enhancement)
+
+**Status:** ✅ Documented. Risk accepted for solo project; revisit if contributors join.
+
+#### [MEDIUM-2] OIDC Trust Policy — Branch Scope Too Broad
+
+**Finding:** If trust policy uses wildcard `ref:refs/heads/*`, any branch can assume the metrics role.
+
+**Remediation:** Section 8 now recommends restricting to `main` branch and `pull_request` events only.
+
+**Status:** ✅ Documented in Section 8.
+
+#### [MEDIUM-3] Token Count as Side-Channel
+
+**Finding:** Storing `input_tokens` and `output_tokens` can leak information:
+- High input tokens → large PR or verbose prompt
+- High output tokens → many findings or verbose AI response
+- Correlation with PR title → infer sensitive areas under scrutiny
+
+**Risk:** Low probability, but if metrics are exposed (dashboard sharing, screenshot leak), attacker could infer development patterns.
+
+**Mitigation:**
+- Reclassify token counts as "Internal"
+- Never share CloudWatch dashboards publicly
+- Future: aggregate by week/month if metrics API is added
+
+**Status:** ✅ Documented risk. No code change needed.
+
+### LOW Severity (Implementation Checklist)
+
+#### [LOW-1] Credential Exposure in Logs
+
+**Finding:** No explicit guidance on preventing `GITHUB_TOKEN` or Bedrock API responses from being logged.
+
+**Mitigation:** Added to implementation checklist (Section 11, Phase 1):
+- Verify no secrets are logged in CloudWatch Logs
+- Use structured logging with explicit allow-list of fields
+- Truncate/sanitize Bedrock responses before logging
+
+**Status:** ✅ Added to implementation plan.
+
+### Positive Security Observations
+
+1. ✅ **OIDC over static credentials** — Correct use of federated access, no long-lived keys
+2. ✅ **Scoped DynamoDB permissions** — `PutItem` only on specific table ARN, not `*`
+3. ✅ **TTL for data minimization** — 90-day retention limits blast radius over time
+4. ✅ **No public endpoints** — Metrics collection is entirely internal (GitHub Actions → AWS)
+5. ✅ **Non-blocking failure mode** — `continue-on-error: true` ensures metrics never break CI
+
+### Security Compliance
+
+| Framework | Alignment |
+|-----------|-----------|
+| **SLATS (Security Rules)** | ✅ All rules followed (encryption, no public S3, IAM least-privilege) |
+| **OWASP Top 10 (2021)** | ✅ A02 (Cryptographic Failures) — encryption enforced |
+| | ✅ A01 (Broken Access Control) — IAM conditions applied |
+| **AWS Well-Architected (Security Pillar)** | ✅ Identity management (OIDC), detective controls (CloudTrail), data protection (encryption) |
+
+### Recommendations for Future Phases
+
+1. **Phase 2+**: Enable DynamoDB Streams with Lambda trigger for audit logging of all table access
+2. **Phase 3+**: Add CloudTrail event filtering for role assumption events (detect anomalous usage)
+3. **Phase 4+**: If metrics are ever exposed via API, implement rate limiting and IP allowlisting
 
 ---
 
-## 15. Files to Create/Modify
+## 15. Architecture Concerns & Trade-offs
+
+### Multiple Fix Cycles — Data Model Limitation
+
+**Issue:** The current schema stores fix metrics as flat fields on the review record (`fix_cycle`, `fix_duration_ms`, `fix_outcome`). If multiple fix cycles occur (PR fails review → fix 1 → re-review → fix 2), only the last fix is preserved.
+
+**Impact:** Loss of granularity. Can't see:
+- How long each fix cycle took
+- Which cycle succeeded/failed
+- Total fix attempts per PR
+
+**Options:**
+1. **Accept limitation (Phase 1)** — For weekly digest, "last fix outcome" is sufficient. Most PRs have 0-1 fix cycles.
+2. **List attribute (Phase 2+)** — Store `fix_history` as a DynamoDB List:
+   ```json
+   "fix_history": [
+     { "cycle": 1, "duration_ms": 120000, "outcome": "failure", "tokens_in": 45000, "tokens_out": 25000 },
+     { "cycle": 2, "duration_ms": 95000, "outcome": "success", "tokens_in": 38000, "tokens_out": 22000 }
+   ]
+   ```
+3. **Separate table (over-engineered)** — `PK=PR#210, SK=FIX#1` and `SK=FIX#2`. Adds complexity for marginal benefit.
+
+**Decision:** Phase 1 uses flat fields (option 1). Add List attribute in Phase 2 if fix cycle analysis becomes important.
+
+### CloudWatch Token Attribution — Race Condition Risk
+
+**Issue:** Token counts are queried by time window (`reviewStart - 5min` to `reviewEnd + 5min`). If two PRs run close together (e.g., PR #210 review ends at 10:00, PR #211 starts at 9:58), their 5-minute windows overlap. Concurrency groups prevent simultaneous runs on the **same PR**, but not on **different PRs**.
+
+**Impact:** Token counts could bleed between PRs. Likelihood is low (requires tight timing + multiple active PRs), but possible.
+
+**Mitigations:**
+1. **Accept risk (Phase 1)** — At ~10 PRs/week, collision probability is <5%. Weekly aggregate totals remain accurate.
+2. **CloudTrail fallback (Phase 2+)** — Parse `InvokeModel` events for exact per-request tokens. Adds $0.10/100K events cost.
+3. **Reduce window buffer** — Use 2-minute buffer instead of 5 minutes, but increases risk of missing delayed metrics.
+4. **Inference profile tagging (future)** — If Bedrock supports per-request tagging, correlate by tag instead of time window.
+
+**Decision:** Accept risk in Phase 1. Monitor weekly digest for anomalies (e.g., PR with 0 findings but high token count). Revisit in Phase 2 if needed.
+
+### Cost Calculation Versioning
+
+**Issue:** Cost formula is hardcoded:
+```javascript
+(inputTokens / 1e6 * 15) + (outputTokens / 1e6 * 75)  // Opus 4.6 prices as of 2026-04-03
+```
+
+If Bedrock pricing changes, historical metrics will be recomputed with new prices, distorting trends.
+
+**Options:**
+1. **Store cost at write time** — Compute `estimated_cost_usd` during emit-metrics and never recompute. Simple but opaque to pricing changes.
+2. **Store pricing version** — Add `pricing_version: "2026-04"` field, keep a lookup table of historical prices.
+3. **Store both** — Raw tokens + computed cost at write time. Can recompute for analysis but preserve original estimate.
+
+**Decision:** Phase 1 stores both (option 3). Add `estimated_cost_usd` computed at write time, plus raw tokens. Weekly digest uses stored cost. Future analysis can recompute if needed.
+
+---
+
+## 16. Open Questions
+
+1. **TTL duration** — 90 days seems right for a personal project. Should we go longer (180 days) for better trend analysis?
+   - **Tradeoff:** Longer retention = better trend analysis, but increases storage cost (currently free tier, scales at $0.25/GB-month).
+   - **Recommendation:** Start with 90 days. Revisit after 3 months if year-over-year comparisons become valuable.
+
+2. **Backfill** — Worth writing a script to populate metrics from the ~2 weeks of existing pipeline runs?
+   - **Answered:** Phase 3 backfills sentinel values (-1) from CloudWatch. Phase 4 optionally backfills from GitHub Actions API/logs.
+   - **Open sub-question:** Should backfill be automatic (weekly cron) or manual (one-time script)?
+
+3. **Alert threshold** — What cost per PR should trigger an alert? Suggestion: $10 (3x current average).
+   - **Context:** Current avg ~$3/PR. Alert at $10 catches outliers (large PRs, many fix cycles) without noise.
+   - **Recommendation:** Implement in Phase 4. Send Telegram alert with 🚨 emoji and link to PR.
+
+4. **Findings categorization** — Should we track finding *categories* (security, bugs, quality) in addition to severity? Would require parsing the summary comment more deeply.
+   - **Tradeoff:** Richer analytics (e.g., "30% of findings are security issues") vs parsing complexity.
+   - **Recommendation:** Defer to Phase 4+. Current severity-based tracking is sufficient for cost/time analysis.
+
+5. **Multiple fix cycles** — Accept flat schema limitation in Phase 1, or implement List attribute immediately?
+   - **Answered:** Section 15 recommends flat schema in Phase 1 (most PRs have 0-1 fix cycles). Migrate to List in Phase 2+ if analysis needs arise.
+   - **Open sub-question:** Should we track fix cycle success rate in weekly digest (requires List attribute)?
+
+---
+
+## 17. Files to Create/Modify
 
 | File | Change | Phase |
 |------|--------|-------|
