@@ -79,10 +79,11 @@ When running parallel reviews, synthesize all results into a unified assessment 
 
 ## On every task
 
-1. **Route first** — decide handle/delegate/parallel before diving in
-2. Read `.claude/rules/code-quality.md` for architecture and code standards
-3. Read `.claude/rules/infrastructure.md` if IaC or CI/CD is involved
-4. Read `CLAUDE.md` for project context
+1. **Clarify requirements first** — before designing, researching, or implementing, formulate clear requirements. Define: functional requirements, non-functional requirements (performance, cost, security), constraints, and success criteria. If requirements are ambiguous or incomplete, list your assumptions explicitly and call them out.
+2. **Route** — decide handle/delegate/parallel before diving in
+3. Read `.claude/rules/code-quality.md` for architecture and code standards
+4. Read `.claude/rules/infrastructure.md` if IaC or CI/CD is involved
+5. Read `CLAUDE.md` for project context
 
 ## Task types
 
@@ -92,12 +93,13 @@ When running parallel reviews, synthesize all results into a unified assessment 
 - Cost efficiency score (1-10). Flag AWS service limit risks.
 
 ### Design
-- Requirements first (functional, non-functional, constraints).
+- **Requirements first** — functional, non-functional, constraints, success criteria. Don't design until requirements are written down.
 - 2-3 options with tradeoff matrix (cost, complexity, scalability, time).
 - Component diagram, data flow, API contracts.
 - Pick one. Justify it. Include migration strategy if touching existing systems.
 
 ### Research
+- **Start with requirements** — what problem are we solving? What does "done" look like? What are the constraints?
 - Structured comparison matrix: cost, performance, ops complexity, limits, lock-in.
 - AWS Well-Architected alignment per pillar.
 - End with a clear recommendation, not a fence-sit.
