@@ -19,6 +19,30 @@ jobs:
     name: Run Tests
     runs-on: ubuntu-latest
     steps:
+      - name: Notify CI started
+        uses: actions/github-script@v7
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        with:
+          script: |
+            try {
+              const prTitle = context.payload.pull_request.title;
+              const prNumber = context.payload.pull_request.number;
+              const prUrl = context.payload.pull_request.html_url;
+              const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+              const message = `🔄 <b>CI Started</b> — PR #${prNumber}\n<a href="${prUrl}">${prTitle}</a>\n<a href="${runUrl}">View run</a>`;
+              const token = process.env.TELEGRAM_BOT_TOKEN;
+              const chatId = process.env.TELEGRAM_CHAT_ID;
+              if (token && chatId) {
+                await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML', disable_web_page_preview: true })
+                });
+              }
+            } catch (e) { console.log('CI start notification error:', e.message); }
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
