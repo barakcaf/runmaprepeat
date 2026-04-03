@@ -76,6 +76,16 @@ describe('Button', () => {
     expect(button).toHaveAttribute('type', 'submit');
   });
 
+  it('icon-only button with aria-label passes accessibility', async () => {
+    const { container } = render(
+      <Button icon={<span>★</span>} aria-label="Favorite" />,
+    );
+    const button = screen.getByRole('button', { name: 'Favorite' });
+    expect(button).toBeInTheDocument();
+    const results = await axe(container);
+    expect(results).toHaveNoViolations();
+  });
+
   it('has no accessibility violations', async () => {
     const { container } = render(
       <div>

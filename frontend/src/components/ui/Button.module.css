@@ -67,7 +67,7 @@
 /* Secondary - Alternative action */
 .secondary {
   background-color: var(--color-secondary);
-  color: var(--color-text-on-primary);
+  color: var(--color-text-on-secondary);
   box-shadow: var(--shadow-sm);
 }
 
@@ -84,12 +84,12 @@
 /* Danger - Destructive action */
 .danger {
   background-color: var(--color-error);
-  color: #FFFFFF;
+  color: var(--color-text-on-danger);
   box-shadow: var(--shadow-sm);
 }
 
 .danger:hover:not(:disabled) {
-  background-color: #B71C1C; /* Darker red for hover */
+  background-color: var(--color-error-hover);
   box-shadow: var(--shadow-md);
 }
 
