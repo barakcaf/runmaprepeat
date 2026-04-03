@@ -9,17 +9,12 @@ from typing import Any
 
 import boto3
 
+from handlers.utils.cors import cors_headers
 from handlers.utils.validation import get_user_id
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-CORS_HEADERS = {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": os.environ["ALLOWED_ORIGIN"],
-    "Access-Control-Allow-Headers": "Content-Type,Authorization",
-    "Access-Control-Allow-Methods": "POST,OPTIONS",
-}
 
 MIN_WAYPOINTS = 2
 MAX_WAYPOINTS = 25
@@ -28,7 +23,15 @@ MAX_LNG = 180.0
 MIN_LAT = -90.0
 MAX_LAT = 90.0
 
-location_client = boto3.client("location")
+_location_client = None
+
+
+def _get_location_client():
+    """Lazy-init the Location Service client."""
+    global _location_client
+    if _location_client is None:
+        _location_client = boto3.client("location")
+    return _location_client
 
 
 def _validate_waypoints(body: dict[str, Any]) -> list[str]:
@@ -65,7 +68,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     http_method = event.get("httpMethod", "")
 
     if http_method == "OPTIONS":
-        return {"statusCode": 200, "headers": CORS_HEADERS, "body": ""}
+        return {"statusCode": 200, "headers": cors_headers(), "body": ""}
 
     user_id = get_user_id(event)
     if not user_id:
@@ -86,7 +89,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     waypoints = body["waypoints"]
 
     try:
-        result = location_client.calculate_route(
+        result = _get_location_client().calculate_route(
             CalculatorName=os.environ["ROUTE_CALCULATOR_NAME"],
             DeparturePosition=waypoints[0],
             DestinationPosition=waypoints[-1],
@@ -115,7 +118,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 def _success(data: Any, status_code: int = 200) -> dict[str, Any]:
     return {
         "statusCode": status_code,
-        "headers": CORS_HEADERS,
+        "headers": cors_headers(),
         "body": json.dumps(data),
     }
 
@@ -123,6 +126,6 @@ def _success(data: Any, status_code: int = 200) -> dict[str, Any]:
 def _error(status_code: int, message: str) -> dict[str, Any]:
     return {
         "statusCode": status_code,
-        "headers": CORS_HEADERS,
+        "headers": cors_headers(),
         "body": json.dumps({"error": message}),
     }

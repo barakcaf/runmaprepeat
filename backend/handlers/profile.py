@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 
 import json
 import logging
@@ -10,17 +9,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from data.profile import get_profile, put_profile
+from handlers.utils.cors import cors_headers
 from handlers.utils.validation import get_user_id, validate_profile
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-CORS_HEADERS = {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": os.environ["ALLOWED_ORIGIN"],
-    "Access-Control-Allow-Headers": "Content-Type,Authorization",
-    "Access-Control-Allow-Methods": "GET,PUT,OPTIONS",
-}
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -28,7 +22,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     http_method = event.get("httpMethod", "")
 
     if http_method == "OPTIONS":
-        return {"statusCode": 200, "headers": CORS_HEADERS, "body": ""}
+        return {"statusCode": 200, "headers": cors_headers(), "body": ""}
 
     user_id = get_user_id(event)
     if not user_id:
@@ -81,7 +75,7 @@ def _put_profile(user_id: str, event: dict[str, Any]) -> dict[str, Any]:
 def _success(data: Any, status_code: int = 200) -> dict[str, Any]:
     return {
         "statusCode": status_code,
-        "headers": CORS_HEADERS,
+        "headers": cors_headers(),
         "body": json.dumps(data),
     }
 
@@ -89,6 +83,6 @@ def _success(data: Any, status_code: int = 200) -> dict[str, Any]:
 def _error(status_code: int, message: str) -> dict[str, Any]:
     return {
         "statusCode": status_code,
-        "headers": CORS_HEADERS,
+        "headers": cors_headers(),
         "body": json.dumps({"error": message}),
     }

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 
 import json
 import logging
@@ -10,17 +9,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from data.runs import list_all_runs
+from handlers.utils.cors import cors_headers
 from handlers.utils.validation import get_user_id
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-CORS_HEADERS = {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": os.environ["ALLOWED_ORIGIN"],
-    "Access-Control-Allow-Headers": "Content-Type,Authorization",
-    "Access-Control-Allow-Methods": "GET,OPTIONS",
-}
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -28,7 +22,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     http_method = event.get("httpMethod", "")
 
     if http_method == "OPTIONS":
-        return {"statusCode": 200, "headers": CORS_HEADERS, "body": ""}
+        return {"statusCode": 200, "headers": cors_headers(), "body": ""}
 
     if http_method != "GET":
         return _error(405, "Method not allowed")
@@ -229,7 +223,7 @@ def _all_time(runs: list[dict[str, Any]]) -> dict[str, Any]:
 def _success(data: Any) -> dict[str, Any]:
     return {
         "statusCode": 200,
-        "headers": CORS_HEADERS,
+        "headers": cors_headers(),
         "body": json.dumps(data),
     }
 
@@ -237,6 +231,6 @@ def _success(data: Any) -> dict[str, Any]:
 def _error(status_code: int, message: str) -> dict[str, Any]:
     return {
         "statusCode": status_code,
-        "headers": CORS_HEADERS,
+        "headers": cors_headers(),
         "body": json.dumps({"error": message}),
     }

@@ -13,6 +13,7 @@ from typing import Any
 from data.profile import get_profile
 from data.runs import create_run, delete_run, get_run, list_runs, update_run
 from handlers.utils.calories import calculate_calories
+from handlers.utils.cors import cors_headers
 from handlers.utils.validation import (
     get_user_id,
     validate_complete_run,
@@ -22,12 +23,6 @@ from handlers.utils.validation import (
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-CORS_HEADERS = {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": os.environ["ALLOWED_ORIGIN"],
-    "Access-Control-Allow-Headers": "Content-Type,Authorization",
-    "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
-}
 
 # ULID uses Crockford's base32
 _CROCKFORD_BASE32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -57,7 +52,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     path = event.get("resource", "")
 
     if http_method == "OPTIONS":
-        return {"statusCode": 200, "headers": CORS_HEADERS, "body": ""}
+        return {"statusCode": 200, "headers": cors_headers(), "body": ""}
 
     user_id = get_user_id(event)
     if not user_id:
@@ -234,7 +229,7 @@ def _complete_run(user_id: str, run_id: str | None, event: dict[str, Any]) -> di
 def _success(data: Any, status_code: int = 200) -> dict[str, Any]:
     return {
         "statusCode": status_code,
-        "headers": CORS_HEADERS,
+        "headers": cors_headers(),
         "body": json.dumps(data),
     }
 
@@ -242,6 +237,6 @@ def _success(data: Any, status_code: int = 200) -> dict[str, Any]:
 def _error(status_code: int, message: str) -> dict[str, Any]:
     return {
         "statusCode": status_code,
-        "headers": CORS_HEADERS,
+        "headers": cors_headers(),
         "body": json.dumps({"error": message}),
     }

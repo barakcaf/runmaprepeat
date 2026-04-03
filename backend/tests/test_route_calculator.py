@@ -101,9 +101,10 @@ def test_waypoint_lat_out_of_range() -> None:
     assert "lat must be between" in json.loads(response["body"])["error"]
 
 
-@patch("handlers.route_calculator.location_client")
+@patch.dict("os.environ", {"ROUTE_CALCULATOR_NAME": "test-calculator"})
+@patch("handlers.route_calculator._get_location_client")
 def test_successful_route_calculation(mock_client: MagicMock) -> None:
-    mock_client.calculate_route.return_value = {
+    mock_client.return_value.calculate_route.return_value = {
         "Legs": [
             {
                 "Geometry": {
@@ -122,17 +123,18 @@ def test_successful_route_calculation(mock_client: MagicMock) -> None:
     assert body["geometry"] == [[34.78, 32.08], [34.785, 32.085], [34.79, 32.09]]
     assert body["distanceMeters"] == 5000.0
 
-    mock_client.calculate_route.assert_called_once()
-    call_kwargs = mock_client.calculate_route.call_args[1]
+    mock_client.return_value.calculate_route.assert_called_once()
+    call_kwargs = mock_client.return_value.calculate_route.call_args[1]
     assert call_kwargs["TravelMode"] == "Walking"
     assert call_kwargs["DeparturePosition"] == [34.78, 32.08]
     assert call_kwargs["DestinationPosition"] == [34.79, 32.09]
     assert call_kwargs["WaypointPositions"] == []
 
 
-@patch("handlers.route_calculator.location_client")
+@patch.dict("os.environ", {"ROUTE_CALCULATOR_NAME": "test-calculator"})
+@patch("handlers.route_calculator._get_location_client")
 def test_multi_leg_route(mock_client: MagicMock) -> None:
-    mock_client.calculate_route.return_value = {
+    mock_client.return_value.calculate_route.return_value = {
         "Legs": [
             {
                 "Geometry": {
@@ -157,13 +159,14 @@ def test_multi_leg_route(mock_client: MagicMock) -> None:
     assert body["geometry"] == [[1, 1], [1.5, 1.5], [2, 2], [2.5, 2.5], [3, 3]]
     assert body["distanceMeters"] == 10000.0
 
-    call_kwargs = mock_client.calculate_route.call_args[1]
+    call_kwargs = mock_client.return_value.calculate_route.call_args[1]
     assert call_kwargs["WaypointPositions"] == [[2, 2]]
 
 
-@patch("handlers.route_calculator.location_client")
+@patch.dict("os.environ", {"ROUTE_CALCULATOR_NAME": "test-calculator"})
+@patch("handlers.route_calculator._get_location_client")
 def test_route_calculation_failure(mock_client: MagicMock) -> None:
-    mock_client.calculate_route.side_effect = Exception("AWS error")
+    mock_client.return_value.calculate_route.side_effect = Exception("AWS error")
 
     event = _make_event(body={"waypoints": [[34.78, 32.08], [34.79, 32.09]]})
     response = handler(event, None)
