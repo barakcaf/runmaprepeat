@@ -638,27 +638,4 @@ jobs:
               body: body,
             });
 
-      - name: Notify auto-fix triggered
-        if: always() && steps.cycle.outputs.skip != 'true'
-        uses: actions/github-script@v7
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        with:
-          script: |
-            try {
-              const prNumber = context.payload.pull_request.number;
-              const prTitle = context.payload.pull_request.title;
-              const prUrl = context.payload.pull_request.html_url;
-              const cycle = '${{ steps.cycle.outputs.cycle }}';
-              const message = `🔧 <b>Auto-Fix Triggered</b> — PR #${prNumber} (cycle ${cycle}/2)\n<a href="${prUrl}">${prTitle}</a>`;
-              const token = process.env.TELEGRAM_BOT_TOKEN;
-              const chatId = process.env.TELEGRAM_CHAT_ID;
-              if (token && chatId) {
-                await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML', disable_web_page_preview: true })
-                });
-              }
-            } catch (e) { console.log('Auto-fix trigger notification error:', e.message); }
+
