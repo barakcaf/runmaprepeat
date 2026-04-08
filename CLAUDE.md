@@ -1,5 +1,7 @@
 # CLAUDE.md — RunMapRepeat
 
+@AGENTS.md
+
 Personal exercise run tracker. Draw routes on a map → distance, pace, calories.
 
 ## Build & Test (run these to verify your work)
