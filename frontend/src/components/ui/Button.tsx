@@ -63,7 +63,7 @@ export function Button({
 
   // WCAG 4.1.2: Icon-only buttons must have an accessible name
   const needsAriaLabel = icon && !children && !props['aria-label'] && !props['aria-labelledby'];
-  if (process.env.NODE_ENV !== 'production' && needsAriaLabel) {
+  if (import.meta.env.MODE !== 'production' && needsAriaLabel) {
     console.warn('Button: Icon-only buttons require an aria-label or aria-labelledby for accessibility.');
   }
 
